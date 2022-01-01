@@ -63,21 +63,24 @@ rules = []
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=1, start_time=0, end_time=4390, diff=100))
 
 # A07
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, value=15000))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, diff=15000))
 
 # TODO
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
 
 # Decimation CP 41 10:16.25
 # Cette règle fait que tes steer changent en steer + ou -
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.05, start_time=613000, end_time=617000, diff=65536))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.05, start_time=613000, end_time=617000, diff=65536))
 
 # Cette règle fait que tes steer changent de timing (comme TMI)
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
 
 # Cette règle fait que tes press up/down changent de timing (comme TMI)
-rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0, start_time=613000, end_time=617000, diff=50))
-rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
+# rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0, start_time=613000, end_time=617000, diff=50))
+# rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
+
+# Custom
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=10000, end_time=14000, diff=132000))
 
 PRECISION = 0.000001
 FILL_INPUTS = True
@@ -90,11 +93,11 @@ steer_equal_last_input_proba = 0
 steer_zero_proba = 0 # proba to randomize steer to 0 instead of changing direction left/right
 
 # From previous script
-eval = Eval.CP
-parameter = Optimize.CUSTOM
+eval = Eval.TIME
+parameter = Optimize.VELOCITY
 
-TIME_MIN = 10000
-TIME_MAX = 10000
+TIME_MIN = 18000
+TIME_MAX = TIME_MIN
 
 # eval == Eval.CP:
 CP_NUMBER = 1
@@ -162,7 +165,7 @@ class MainClient(Client):
         self.lowest_time = self.begin_buffer.events_duration
 
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
-        print(self.begin_buffer.to_commands_str())
+        # print(self.begin_buffer.to_commands_str())
 
         # Load state
         if LOAD_REPLAY_FROM_STATE:
@@ -188,11 +191,12 @@ class MainClient(Client):
     def on_simulation_step(self, iface: TMInterface, _time: int):
         self.race_time = _time
         if not self.state_min_change:
-            if self.race_time % 10000 == 0:
-                sys.stdout.write(f"\rSimulating base run... {int(self.race_time/1000)}sec")
-                sys.stdout.flush()
-            # if self.race_time == self.lowest_time:
-            #     print()
+            if LOAD_INPUTS_FROM_FILE:
+                if self.race_time % 10000 == 0:
+                    sys.stdout.write(f"\rSimulating base run... {int(self.race_time/1000)}sec")
+                    sys.stdout.flush()
+                # if self.race_time == self.lowest_time:
+                #     print()
 
             if self.race_time == lowest_poss_change:
                 # Store state to rewind to for every iteration, for now it is earliest possible input change
@@ -211,10 +215,11 @@ class MainClient(Client):
                 self.best_car = self.car
                 
                 if self.nb_iterations == 0:
-                    print() # after write/flush
-                    print(f"base = {_time}")
+                    # print() # after write/flush
+                    # print(f"base = {race_time}")
+                    pass
                 else:
-                    print(f"FOUND IMPROVEMENT: {_time}")
+                    # print(f"FOUND IMPROVEMENT: {race_time}")
                     if not LOCK_BASE_RUN:
                         self.begin_buffer.events = self.current_buffer.events
                 
@@ -230,61 +235,78 @@ class MainClient(Client):
         self.car = Car(self.race_time)
         self.car.update(state)
 
-        if not self.condition(state):
-            return False
+        # if there's no best car, then it's base run
+        base_run = not self.best_car
 
-        # Calculate & print for base car on next iteration with condition True
-        if not self.best_car:
-            ret = True
+        if not self.condition():
+            return False
             
         if parameter == Optimize.TIME:
             if self.car._time < self.best_car._time:
                 return True
 
         if parameter == Optimize.DISTANCE:
-            return self.is_closer(min_diff)
+            return self.is_closer(base_run, min_diff)
 
         if parameter == Optimize.VELOCITY:
-            return self.is_faster(min_diff)
+            return self.is_faster(base_run, min_diff)
 
         if parameter == Optimize.CUSTOM:
-            return self.is_custom(min_diff)
+            return self.is_custom(base_run, min_diff)
 
-        return ret
+        return False
 
-    def is_custom(self, state="", min_diff=0):
+    def is_custom(self, base_run, min_diff=0):
         """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-        if not self.best_car.custom:
-            self.best_car.custom = get_dist_2_points(POINT_POS, self.best_car.state.position, axis)
-            print(f"Base run distance = {math.sqrt(self.best_car.distance)}")
-        self.current = abs(car.pitch_deg - 90)
-        self.current = car.z
-        # self.current = get_dist_2_points(POINT_POS, state.position, "xz")
-        # self.current = car.get_speed("xz")
-        if self.best == -1:
-            return True
-        return self.current < self.best + min_diff
-    
-    def is_closer(self, min_diff=0, axis="xyz"):
-        if not self.best_car.distance:
-            self.best_car.distance = get_dist_2_points(POINT_POS, self.best_car.state.position, axis)
-            print(f"Base run distance = {math.sqrt(self.best_car.distance)}")
+        # if base_run:
+        #     car = self.best_car
+        # else:
+        #     car = self.car
 
-        self.car.distance = get_dist_2_points(POINT_POS, self.car.state.position, axis)
-        if self.car.distance < self.best_car.distance - min_diff:
-            print(f"Improved distance = {math.sqrt(self.best_car.distance)}")
+        # car.custom = abs(car.pitch_deg - 90)
+        # car.custom = car.z
+        # car.custom = get_dist_2_points(POINT_POS, car.position, "xz")
+        self.car.custom = self.car.get_speed("xz")
+        
+        if base_run:
+            print(f"Base run custom = {math.sqrt(self.car.custom)}")
+            return True
+        elif self.car.distance < self.best_car.distance - min_diff:
+            print(f"Improved custom = {math.sqrt(self.car.custom)}")
+            return True
+
+        return False
+    
+    def is_closer(self, base_run, min_diff=0, axis="xyz"):
+        # if base_run:
+        #     car = self.best_car
+        # else:
+        #     car = self.car
+
+        self.car.distance = get_dist_2_points(POINT_POS, self.car.position, axis)
+        
+        if base_run:
+            print(f"Base run distance = {math.sqrt(self.car.distance)}m")
+            return True
+        elif self.car.distance < self.best_car.distance - min_diff:
+            print(f"Improved distance = {math.sqrt(self.car.distance)}m")
             return True
         
         return False
         
-    def is_faster(self, min_diff=0):
-        if not self.best_car.velocity:
-            self.best_car.velocity = min(self.best_car.speed_kmh, 1000)
-            print(f"Base run velocity = {self.best_car.velocity}")
+    def is_faster(self, base_run, min_diff=0):
+        # if base_run:
+        #     car = self.best_car
+        # else:
+        #     car = self.car
 
         self.car.velocity = min(self.car.speed_kmh, 1000)
-        if self.car.velocity > self.best_car.velocity + min_diff:
-            print(f"Improved velocity = {self.car.velocity}")
+
+        if base_run:
+            print(f"Base run velocity = {self.car.velocity} kmh")
+            return True
+        elif self.car.velocity > self.best_car.velocity + min_diff:
+            print(f"Improved velocity = {self.car.velocity} kmh")
             return True
         
         return False
@@ -297,7 +319,7 @@ class MainClient(Client):
     def is_eval_time(self):
         if eval == Eval.TIME:
             # print(self.current_time)
-            if TIME_MIN <= self.current_time <= TIME_MAX:
+            if TIME_MIN <= self.race_time <= TIME_MAX:
                 return True
         if eval == Eval.CP:
             if CP_NUMBER <= self.cp_count or self.race_time > highest_poss_change:
@@ -307,7 +329,7 @@ class MainClient(Client):
 
     def is_past_eval_time(self):
         if eval == Eval.TIME:
-            if TIME_MAX <= self.current_time:
+            if TIME_MAX <= self.race_time:
                 return True
 
         if eval == Eval.CP:
@@ -331,7 +353,7 @@ class MainClient(Client):
         self.cp_count = self.get_nb_cp(iface)
         # print(f"{self.cp_count=}")
         self.nb_iterations += 1
-        if self.nb_iterations <= 5 or self.nb_iterations % 1000 == 0:
+        if self.nb_iterations in [1, 10, 100] or self.nb_iterations % 1000 == 0:
             print(f"{self.nb_iterations=}")
 
     def randomize_inputs(self):
@@ -467,6 +489,7 @@ class Car():
     def update(self, state):
         self.state = state
         
+        self.position = state.position
         self.x, self.y, self.z = state.position
         self.yaw_rad, self.pitch_rad, self.roll_rad = state.yaw_pitch_roll
         self.vel_x, self.vel_y, self.vel_z = state.velocity
