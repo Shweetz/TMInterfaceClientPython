@@ -10,6 +10,8 @@ import time
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
+from commandlist import CommandList, InputCommand, InputType
+import load_state
 
 # class Input(IntEnum):
 #     UP = BINARY_ACCELERATE_NAME
@@ -19,6 +21,7 @@ from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BIN
 class ChangeType(IntEnum):
     STEER_DIFF = 0
     TIMING = 1
+    AVG_REBRUTE = 2
      # TODO CREATE_REMOVE = 2
 
 @dataclass
@@ -41,21 +44,29 @@ rules = []
 # rules.append(Change(Input.STEER, ChangeType.STEER_DIFF,     proba=0.01, start_time=40000, end_time=42880, diff=65536))
 
 # A-0
-# rules.append(Change(Input.STEER, ChangeType.STEER_DIFF,     proba=1, start_time=0, end_time=4390, diff=0))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=1, start_time=0, end_time=4390, diff=100))
 
 # A07
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, value=15000))
 
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=0.01, start_time=40000, end_time=42880, diff=65536))
+# Decimation CP 41 10:16.25
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=0.01, start_time=610000, end_time=616250, diff=65536))
+
+# TODO
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
 
 PRECISION = 0.000001
 FILL_INPUTS = True
 LOCK_BASE_RUN = False
+LOAD_INPUTS_FROM_FILE = True
+LOAD_REPLAY_FROM_STATE = True
 
 # steer_cap_accept = True
-steer_equal_last_input_proba = 0.5
+steer_equal_last_input_proba = 0.1
 steer_zero_proba = 0.5 # proba to randomize steer to 0 instead of changing direction left/right 
 """END OF PARAMETERS"""
+
+# Files stuff
 
 class Phase(IntEnum):
     WAITING_GAME_FINISH = 0
@@ -93,17 +104,29 @@ class MainClient(Client):
     def on_simulation_begin(self, iface):
         iface.remove_state_validation()
 
+        # Fill begin_buffer
         self.begin_buffer = iface.get_event_buffer()
-        self.lowest_time = self.begin_buffer.events_duration
+        if LOAD_INPUTS_FROM_FILE:
+            self.load_inputs_from_file()
+            iface.set_event_buffer(self.begin_buffer)
         if FILL_INPUTS:
             self.fill_inputs()
+
+        self.lowest_time = self.begin_buffer.events_duration
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.current_buffer.to_commands_str())
+
+        # Load state
+        if LOAD_REPLAY_FROM_STATE:
+            file_name = "../States/state.bin"
+            self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+            self.state_min_change = load_state.load_state(self.state_file)
+            iface.rewind_to_state(self.state_min_change)
         
     def fill_inputs(self, start_fill=0, end_fill=0):
         """Fill inputs between start_fill and end_fill included"""
         if end_fill == 0:
-            end_fill = self.lowest_time
+            end_fill = self.begin_buffer.events_duration
             
         curr_steer = 0
         for event_time in range(start_fill, end_fill+10, 10):
@@ -305,6 +328,28 @@ class MainClient(Client):
         with open(res_file, "w") as f:
             f.write(f"# Time: {time_found}, iterations: {self.nb_iterations}\n")
             f.write(self.current_buffer.to_commands_str())
+
+    def load_inputs_from_file(self, file_name="inputs.txt"):
+        # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
+        self.begin_buffer.clear()
+
+        inputs_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+        cmdlist = CommandList(open(inputs_file, 'r'))
+        commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
+
+        for command in commands:
+            if command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
+            elif command.input_type == InputType.DOWN: command.input = BINARY_BRAKE_NAME
+            elif command.input_type == InputType.STEER: command.input = ANALOG_STEER_NAME
+
+            self.begin_buffer.add(command.timestamp, command.input, command.state)
+        # for event_time in range(start_fill, end_fill+10, 10):
+        #     events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+        #     if len(events_at_time) > 0:
+        #         curr_steer = events_at_time[-1].analog_value
+        #     else:
+        #         self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
+        # return 
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         # print(f'Reached checkpoint {current}/{target}')
