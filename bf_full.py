@@ -40,21 +40,21 @@ class TimeCompare(IntEnum):
 
 """START OF PARAMETERS BLOCK (change this to your needs)"""
 eval = Eval.TIME
-parameter = Optimize.DISTANCE
+parameter = Optimize.CUSTOM
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
-TIME_MIN = 43000
-TIME_MAX = TIME_MIN
+TIME_MIN = 5500
+TIME_MAX = 7000
 
 # TIME_MIN = 21000
 # TIME_MAX = TIME_MIN
 
 # eval == Eval.CP:
-CP_NUMBER = 2
+CP_NUMBER = 1
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [688, 18, 460]
+POINT_POS = [497, 25, 80]
 
 # trigger_shape != TriggerShape.NONE:
 TRIGGER = [523.322, 9.357, 458.330, 0.01]
@@ -145,6 +145,12 @@ class MainClient(Client):
             #         self.cp_count = 0
 
         elif self.phase == BFPhase.SEARCH:
+            # if self.current_time == 14000:
+            #     state = iface.get_simulation_state()
+            #     car.update(state)
+            #     if car.z > 675:
+            #         response.decision = BFEvaluationDecision.REJECT
+
             if self.is_eval_time():
                 state = iface.get_simulation_state()
                 car.update(state)
@@ -194,7 +200,7 @@ class MainClient(Client):
         #     self.cp_count = self.get_nb_cp(iface)
 
         # return True
-        return car.y > 18
+        return car.y > 25
         return car.x > 900 and car.speed_kmh > 450 and abs(car.yaw_deg - 90) < 45 and car.y > 42
         return abs(car.yaw_rad + 0.2) < 0.02
         # return self.cp_count == 1
@@ -259,7 +265,7 @@ class MainClient(Client):
         # self.current = car.get_speed("xz")
         if self.best == -1:
             return True
-        return self.current > self.best + min_diff
+        return self.current < self.best + min_diff
 
     def is_better(self, state, min_diff=0):
         if self.is_force_accept():
@@ -320,20 +326,16 @@ class MainClient(Client):
         return self.current > self.best + min_diff
     
     def is_earlier_or_closer(self, state, min_diff=0, axis="xyz"):
+        """Implementation of TMI trigger for distance"""
         self.current = get_dist_2_points(POINT_POS, state.position, axis)
-        # if self.best == -1 and self.current < 40:
-        if self.best == -1:
-            return True
-        # self.compare_time() with TIME_MAX ?
         global TIME_MAX
-        if self.current_time < TIME_MAX:
+        if self.best == -1 or self.current_time < TIME_MAX:
             TIME_MAX = self.current_time
             return True
-        if self.current_time > TIME_MAX:
-            return False
         return self.current < self.best - min_diff
 
     def is_earlier_or_faster(self, min_diff):
+        """Implementation of TMI trigger for distance,velocity (code is different and most likely worse than distance)"""
         self.current = car.speed_kmh
         if self.compare_time() == TimeCompare.EARLIER:
             return True
@@ -382,7 +384,7 @@ class MainClient(Client):
                 self.cp_count = 0
                 return True
         
-        return False            
+        return False
 
     def get_nb_cp(self, iface):
         cp_times = iface.get_checkpoint_state().cp_times
