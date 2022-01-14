@@ -70,44 +70,41 @@ rules = []
 
 # Decimation CP 41 10:16.25
 # Cette règle fait que tes steer changent en steer + ou -
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.05, start_time=613000, end_time=617000, diff=65536))
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=710000, end_time=715540, diff=65536))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=708500, end_time=714600, diff=65536))
 
 # Cette règle fait que tes steer changent de timing (comme TMI)
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
 
 # Cette règle fait que tes press up/down changent de timing (comme TMI)
-# rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0, start_time=613000, end_time=617000, diff=50))
-# rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
+rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=1, start_time=711000, end_time=713000, diff=20))
+rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0.05, start_time=708500, end_time=713000, diff=50))
 
-# Custom
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=10000, end_time=14000, diff=132000))
-
-PRECISION = 0.000001
 FILL_INPUTS = True
 LOCK_BASE_RUN = False
-LOAD_INPUTS_FROM_FILE = False
+LOAD_INPUTS_FROM_FILE = True
 LOAD_REPLAY_FROM_STATE = False
+# PRECISION = 0.000001
 
 # steer_cap_accept = True
-steer_equal_last_input_proba = 0
-steer_zero_proba = 0 # proba to randomize steer to 0 instead of changing direction left/right
+steer_equal_last_input_proba = 0 # proba to make a steer equal to last steer
+steer_zero_proba = 0 # proba to set steer to 0 instead of changing direction left/right
 
 # From previous script
 eval = Eval.TIME
-parameter = Optimize.VELOCITY
+parameter = Optimize.CUSTOM
 
-TIME_MIN = 18000
-TIME_MAX = TIME_MIN
+TIME_MIN = 714000
+TIME_MAX = 715540
 
 # eval == Eval.CP:
-CP_NUMBER = 1
+CP_NUMBER = 48
 
 # parameter == Optimize.DISTANCE:
 POINT_POS = [497, 25, 80]
 
 # Min diff to consider an improvement worthy
 min_diff = 0
-min_diff_frac = 0
 """END OF PARAMETERS"""
 
 # Files stuff
@@ -155,8 +152,8 @@ class MainClient(Client):
 
         # Fill begin_buffer
         self.begin_buffer = iface.get_event_buffer()
-        self.pre_rewind_buffer = iface.get_event_buffer()
         if LOAD_INPUTS_FROM_FILE:
+            self.pre_rewind_buffer = iface.get_event_buffer()
             self.load_inputs_from_file()
             # iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER
         if FILL_INPUTS:
@@ -179,8 +176,24 @@ class MainClient(Client):
         """Fill inputs between start_fill and end_fill included"""
         if end_fill == 0:
             end_fill = self.begin_buffer.events_duration
-            
+        
+        # print(f"fill_inputs(self, {start_fill}, {end_fill})")
+        # Find start steering (if start fill_inputs not on a steering change)
+        if LOAD_INPUTS_FROM_FILE:            
+            buffer = self.pre_rewind_buffer
+        else:
+            buffer = self.begin_buffer
+
         curr_steer = 0
+        for event_time in range(start_fill, -10, -10):
+            # print(f"event_time={event_time}")
+            events_at_time = buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+            if len(events_at_time) > 0:
+                curr_steer = events_at_time[-1].analog_value
+                # print(f"start steer={curr_steer}")
+                break
+
+        # Fill inputs
         for event_time in range(start_fill, end_fill+10, 10):
             events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
             if len(events_at_time) > 0:
@@ -198,13 +211,22 @@ class MainClient(Client):
                 # if self.race_time == self.lowest_time:
                 #     print()
 
+            if self.race_time == lowest_poss_change + 10:
+                if LOAD_INPUTS_FROM_FILE:
+                    # This line sets base run as the inputs file instead of the replay
+                    iface.set_event_buffer(self.begin_buffer)
+
             if self.race_time == lowest_poss_change:
                 # Store state to rewind to for every iteration, for now it is earliest possible input change
                 # - 10 because 1 tick is needed to apply inputs in physics?
                 self.state_min_change = iface.get_simulation_state()
-                file_name = "../States/state.bin"
-                self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
-                pickle.dump(self.state_min_change, open(self.state_file, "wb"))
+                if LOAD_INPUTS_FROM_FILE:
+                    print()
+                    print(f"Simulation done: save state created at {self.race_time} ms")
+
+                # file_name = "../States/state.bin"
+                # self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+                # pickle.dump(self.state_min_change, open(self.state_file, "wb"))
 
         if self.is_eval_time():
             # print("eval_time")
@@ -215,9 +237,10 @@ class MainClient(Client):
                 self.best_car = self.car
                 
                 if self.nb_iterations == 0:
-                    # print() # after write/flush
-                    # print(f"base = {race_time}")
-                    pass
+                    if LOAD_INPUTS_FROM_FILE:
+                        # print() # after write/flush
+                        # print(f"base = {self.race_time}")
+                        pass
                 else:
                     # print(f"FOUND IMPROVEMENT: {race_time}")
                     if not LOCK_BASE_RUN:
@@ -231,6 +254,11 @@ class MainClient(Client):
             # print("past eval_time")
             self.start_new_iteration(iface)
 
+    def condition(self):
+        """Returns False if conditions are not met so run is rejected"""
+        return True
+        return self.car.y > 48
+        
     def is_better(self, state):
         self.car = Car(self.race_time)
         self.car.update(state)
@@ -242,8 +270,7 @@ class MainClient(Client):
             return False
             
         if parameter == Optimize.TIME:
-            if self.car._time < self.best_car._time:
-                return True
+            return self.is_earlier(base_run, min_diff)
 
         if parameter == Optimize.DISTANCE:
             return self.is_closer(base_run, min_diff)
@@ -252,7 +279,7 @@ class MainClient(Client):
             return self.is_faster(base_run, min_diff)
 
         if parameter == Optimize.CUSTOM:
-            return self.is_custom(base_run, min_diff)
+            return self.is_custom3(base_run, min_diff)
 
         return False
 
@@ -263,18 +290,87 @@ class MainClient(Client):
         # else:
         #     car = self.car
 
-        # car.custom = abs(car.pitch_deg - 90)
-        # car.custom = car.z
-        # car.custom = get_dist_2_points(POINT_POS, car.position, "xz")
-        self.car.custom = self.car.get_speed("xz")
+        # self.car.custom = abs(car.pitch_deg - 90)
+        self.car.custom = -self.car.x
+        self.car.custom = -self.car.x
+        # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
+        # self.car.custom = self.car.get_speed("xz")
         
         if base_run:
-            print(f"Base run custom = {math.sqrt(self.car.custom)}")
+            print(f"Base run custom = {self.car.custom}")
             return True
-        elif self.car.distance < self.best_car.distance - min_diff:
-            print(f"Improved custom = {math.sqrt(self.car.custom)}")
+        elif self.car.custom > self.best_car.custom + min_diff:
+            print(f"Improved custom = {self.car.custom}")
             return True
 
+        return False
+
+    def is_custom2(self, base_run, min_diff=0):
+        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""        
+        # Goal 1: max car.y until car.y > 49
+        # Goal 2: min car.x
+        if base_run:
+            print(f"Base run custom y = {self.car.y}")
+            return True
+        else:
+            if self.best_car.y < 48.5:
+                if self.car.y > self.best_car.y + min_diff:
+                    print(f"Improved custom y = {self.car.y}")
+                    return True
+            else:
+                if self.car.y > 48.5 and self.car.x < self.best_car.x - min_diff:
+                    print(f"Improved custom x = {self.car.x}")
+                    return True
+                    
+        return False
+
+    def is_custom3(self, base_run, min_diff=0):
+        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""        
+        # Goal 1: max car.y until car.y > 49
+        # Goal 2: min car.x until car.x < 414
+        # Goal 3: min time
+        goals = []
+        goals.append(Goal("y", True,  48.5))
+        goals.append(Goal("x", False, 414))
+        goals.append(Goal("_time", False, 0))
+
+        if base_run:
+            for goal in goals:
+                print(f"Base run custom {goal.variable} = {getattr(self.car, goal.variable)}")
+            return True
+        else:
+            for goal in goals:
+                if goal.achieved(self.best_car):
+                    if goal.achieved(self.car):
+                        continue
+                    else:
+                        return False
+                else:
+                    if goal.closer(self.car, self.best_car, min_diff):
+                        print(f"Improved custom {goal.variable} = {getattr(self.car, goal.variable)}")
+                        return True
+                    else:
+                        return False
+                    
+        return False
+        
+    def is_earlier(self, base_run, min_diff=0):
+        # if base_run:
+        #     car = self.best_car
+        # else:
+        #     car = self.car
+
+        # if self.best_car and self.car._time < self.best_car._time:
+        #     print(f"FOUND IMPROVEMENT: {self.car._time}")
+        #     return True
+        
+        if base_run:
+            print(f"Base run time = {self.car._time - 10} ms")
+            return True
+        elif self.car._time < self.best_car._time - min_diff:
+            print(f"Improved time = {self.car._time - 10} ms")
+            return True
+        
         return False
     
     def is_closer(self, base_run, min_diff=0, axis="xyz"):
@@ -311,18 +407,13 @@ class MainClient(Client):
         
         return False
 
-    def condition(self):
-        """Returns False if conditions are not met so run is rejected"""
-        return True
-        return self.car.y > 25
-
     def is_eval_time(self):
         if eval == Eval.TIME:
             # print(self.current_time)
             if TIME_MIN <= self.race_time <= TIME_MAX:
                 return True
         if eval == Eval.CP:
-            if CP_NUMBER <= self.cp_count or self.race_time > highest_poss_change:
+            if CP_NUMBER <= self.cp_count:
                 return True
         
         return False
@@ -410,9 +501,10 @@ class MainClient(Client):
         res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
         with open(res_file, "w") as f:
             f.write(f"# Time: {time_found}, iterations: {self.nb_iterations}\n")
-            if self.pre_rewind_buffer:
-                # print inputs before inputs_min_time
-                f.write(self.pre_rewind_buffer.to_commands_str())
+            if LOAD_INPUTS_FROM_FILE:
+                if self.pre_rewind_buffer:
+                    # print inputs before inputs_min_time
+                    f.write(self.pre_rewind_buffer.to_commands_str())
             f.write(self.current_buffer.to_commands_str())
 
     def load_inputs_from_file(self, file_name="inputs.txt"):
@@ -425,7 +517,7 @@ class MainClient(Client):
         commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
 
         for command in commands:
-            if command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
+            if   command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
             elif command.input_type == InputType.DOWN: command.input = BINARY_BRAKE_NAME
             elif command.input_type == InputType.LEFT: command.input = BINARY_LEFT_NAME
             elif command.input_type == InputType.RIGHT: command.input = BINARY_RIGHT_NAME
@@ -447,8 +539,16 @@ class MainClient(Client):
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         self.cp_count = current
-        # if current == CP_NUMBER:
-        #     print(current)
+        if eval == eval.CP:
+            # if current == CP_NUMBER:
+            #     print(f"Cross CP at {self.race_time}")
+            if self.nb_iterations == 0:
+                if current == CP_NUMBER:
+                    global TIME_MIN
+                    global TIME_MAX
+                    TIME_MIN = 0 # script won't check before lowest_poss_change anyway
+                    TIME_MAX = self.race_time
+                    # print(current)
         # print(f'Reached checkpoint {current}/{target}')
         # if current == target:
         #     # print(f'Finished the race at {self.race_time}')
@@ -534,6 +634,35 @@ class Car():
     #         return "above"
         
     #     return "below"
+
+@dataclass
+class Goal():
+    variable : str
+    should_max : bool
+    accept : int
+
+    def achieved(self, car):
+        """
+        Checks if goal is achieved. Examples: 
+        Goal('x', True, 50)        is achieved if car.x > 50
+        Goal('_time', False, 4390) is achieved if car._time < 4390
+        """
+        if self.should_max:
+            if getattr(car, self.variable) > self.accept:
+                return True
+        else:
+            if getattr(car, self.variable) < self.accept:
+                return True
+        return False
+    
+    def closer(self, car, best_car, min_diff=0):
+        if self.should_max:
+            if getattr(car, self.variable) > getattr(best_car, self.variable) + min_diff:
+                return True
+        else:
+            if getattr(car, self.variable) < getattr(best_car, self.variable) - min_diff:
+                return True
+        return False
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
