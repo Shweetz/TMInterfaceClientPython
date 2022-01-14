@@ -50,16 +50,21 @@ rules = []
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, value=15000))
 
 # Decimation CP 41 10:16.25
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=0.01, start_time=610000, end_time=616250, diff=65536))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=0.01, start_time=610000, end_time=616250, diff=65536))
+
+# Custom
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=17800, end_time=19500, diff=65536))
+rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0.02, start_time=17800, end_time=19500, diff=20))
+rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0.02, start_time=17800, end_time=19500, diff=50))
 
 # TODO
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
 
-PRECISION = 0.000001
+PRECISION = 0.001
 FILL_INPUTS = True
 LOCK_BASE_RUN = False
-LOAD_INPUTS_FROM_FILE = True
-LOAD_REPLAY_FROM_STATE = True
+LOAD_INPUTS_FROM_FILE = False
+LOAD_REPLAY_FROM_STATE = False
 
 # steer_cap_accept = True
 steer_equal_last_input_proba = 0.1
@@ -94,6 +99,7 @@ class MainClient(Client):
         # self.base_velocity = None
         self.best_coeff = -1
         self.nb_iterations = 0
+        self.lowest_time = 23730
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
@@ -112,7 +118,7 @@ class MainClient(Client):
         if FILL_INPUTS:
             self.fill_inputs()
 
-        self.lowest_time = self.begin_buffer.events_duration
+        # self.lowest_time = self.begin_buffer.events_duration
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.current_buffer.to_commands_str())
 
@@ -160,13 +166,14 @@ class MainClient(Client):
             if self.finished:
                 # Check finish time
 
-                if self.race_time <= self.lowest_time - 10:
+                if self.race_time <= self.lowest_time:
                     # 0.01 better (at least)
                     self.save_result("result_0.01_better.txt")
                     self.lowest_time = self.race_time-10 # -10 because game floors the ms
                     self.best_coeff = -1
                     print(f"FOUND IMPROVEMENT: {self.lowest_time}")
                 
+                # print(f"{self.race_time} {self.lowest_time}")
                 # Game finish time is tied or better, now evaluate precise finish time
                 self.phase = Phase.ESTIMATING_PRECISE_FINISH
                 self.min_coeff = 0
@@ -204,8 +211,10 @@ class MainClient(Client):
                     self.best_precise_time = self.time_with_speed_coeff
                     if self.nb_iterations == 0:
                         print(f"base = {self.time_with_speed_coeff}")
+                        # self.lowest_time = _time
+                        # print(self.lowest_time)
                     else:
-                        # print(f"accept {self.time_with_speed_coeff}")
+                        print(f"accept {self.time_with_speed_coeff}")
                         if not LOCK_BASE_RUN:
                             self.begin_buffer.events = self.current_buffer.events
                     
@@ -222,7 +231,7 @@ class MainClient(Client):
 
         if _time != self.lowest_time + 10:
             print(f"{_time=} should not happen!")
-            return False
+            # return False
 
         # If self.coeff was enough to finish, update precision on finish time
         if self.finished:
@@ -271,7 +280,7 @@ class MainClient(Client):
             sys.exit()
         iface.rewind_to_state(self.state_min_change)
         self.nb_iterations += 1
-        if self.nb_iterations % 1000 == 0:
+        if self.nb_iterations in [1, 10, 100] or self.nb_iterations % 1000 == 0:
             print(f"{self.nb_iterations=}")
 
     def randomize_inputs(self):
@@ -290,35 +299,90 @@ class MainClient(Client):
         for rule in rules:
             # only inputs that match the rule (ex: steer)
             events = self.current_buffer.find(event_name=rule.input)
-            last_steer = 0
-            for event in events:
-                event_realtime = event.time - 100010
-                # event in rule time
-                if rule.start_time <= event_realtime <= rule.end_time:
-                    # event proba
-                    if random.random() < rule.proba:
-                        # event type
-                        if rule.change_type == ChangeType.STEER_DIFF:
-                            if random.random() < steer_equal_last_input_proba:
-                                event.analog_value = last_steer
-                            else:
-                                new_steer = event.analog_value + random.randint(-rule.diff, rule.diff)
-                                # if diff makes steer change direction (left/right), try 0
-                                if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value) and random.random() < steer_zero_proba:
-                                    event.analog_value = 0
+            if rule.change_type == ChangeType.STEER_DIFF or rule.change_type == ChangeType.TIMING:
+                last_steer = 0
+                for event in events:
+                    event_realtime = event.time - 100010
+                    # event in rule time
+                    if rule.start_time <= event_realtime <= rule.end_time:
+                        # event proba
+                        if random.random() < rule.proba:
+                            # event type
+                            if rule.change_type == ChangeType.STEER_DIFF:
+                                if random.random() < steer_equal_last_input_proba:
+                                    event.analog_value = last_steer
                                 else:
-                                    event.analog_value = new_steer
-                                event.analog_value = min(event.analog_value, 65536)
-                                event.analog_value = max(event.analog_value, -65536)
-                                
-                        if rule.change_type == ChangeType.TIMING:
-                            # ms -> 0.01
-                            diff = random.randint(-rule.diff/10, rule.diff/10)
-                            # 0.01 -> ms
-                            event.time += diff*10
+                                    new_steer = event.analog_value + random.randint(-rule.diff, rule.diff)
+                                    # if diff makes steer change direction (left/right), try 0
+                                    if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value) and random.random() < steer_zero_proba:
+                                        event.analog_value = 0
+                                    else:
+                                        event.analog_value = new_steer
+                                    event.analog_value = min(event.analog_value, 65536)
+                                    event.analog_value = max(event.analog_value, -65536)
+                                    
+                            if rule.change_type == ChangeType.TIMING:
+                                # ms -> 0.01
+                                diff = random.randint(-rule.diff/10, rule.diff/10)
+                                # 0.01 -> ms
+                                event.time += diff*10
 
-                if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
-                    last_steer = event.analog_value
+                    if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
+                        last_steer = event.analog_value
+
+            elif rule.change_type == ChangeType.AVG_REBRUTE:
+                if rule.state == "":
+                    # gather events
+                    rule.events = []
+                    for event in events:
+                        event_realtime = event.time - 100010
+                        if rule.start_time <= event_realtime <= rule.end_time:
+                            rule.events.append(event)
+
+                    avg = 0
+                    nb_inputs = 0
+
+                    # loop to calculate avg
+                    # avg wrong if no fill_inputs?
+                    for event in rule.events:
+                        avg += event.analog_value
+                        nb_inputs += 1
+
+                    avg = avg / nb_inputs
+                    print(avg)
+
+                    # loop again to set avg to all
+                    for event in rule.events:
+                        event.analog_value = avg
+                    
+                    rule.state = "AVG"
+                    rule.iterations = 0
+
+                elif rule.state == "AVG":
+                    # bf for X iterations and change steer by same value for all
+                    diff = random.randint(-rule.diff, rule.diff)
+                    for event in rule.events:
+                        event.analog_value += diff
+
+                    rule.iterations += 1
+                    if rule.iterations > 1000:
+                        rule.state = "REBRUTE"
+                        rule.iterations = 0
+                    
+                    # print(time)
+
+                elif rule.state == "REBRUTE":
+                    # bf for X iterations and change steer individually
+                    for event in rule.events:
+                        diff = random.randint(-rule.diff, rule.diff)
+                        event.analog_value += diff
+                        
+                    rule.iterations += 1
+                    if rule.iterations > 1000:
+                        rule.state = ""
+                    
+                    # compare time with before rule
+
         
     def save_result(self, time_found="", file_name="result.txt"):
         if time_found == "":

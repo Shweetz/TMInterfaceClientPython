@@ -44,8 +44,8 @@ parameter = Optimize.CUSTOM
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
-TIME_MIN = 5500
-TIME_MAX = 7000
+TIME_MIN = 15500
+TIME_MAX = TIME_MIN
 
 # TIME_MIN = 21000
 # TIME_MAX = TIME_MIN
@@ -54,7 +54,13 @@ TIME_MAX = 7000
 CP_NUMBER = 1
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [497, 25, 80]
+POINT_POS = [955, 25, 788] # 4500
+POINT_POS = [604, 25, 654] # 9000
+POINT_POS = [370, 25, 485] # 11500
+POINT_POS = [96, 25, 739] # 15000
+POINT_POS = [136, 25, 826] # 16000
+POINT_POS = [453, 25, 369] # 21500
+POINT_POS = [272, 90, 1000] # C11
 
 # trigger_shape != TriggerShape.NONE:
 TRIGGER = [523.322, 9.357, 458.330, 0.01]
@@ -63,7 +69,7 @@ TRIGGER = [523.322, 9.357, 458.330, 0.01]
 LOCK_BASE_RUN = False
 
 # Min diff to consider an improvement worthy
-min_diff = 0
+min_diff = 1
 min_diff_frac = 0
 """END OF PARAMETERS BLOCK"""
 
@@ -102,8 +108,10 @@ class MainClient(Client):
             print(f"{self.diag_above=}")
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
-        if self.phase != info.phase:
-            self.cp_count = -1
+        # Manually get nb CPs after rewinding (new SEARCH iteration or getting in or out of INITIAL base run)
+        # if self.phase != info.phase or self.cp_count == -1:
+        if info.time < self.current_time:
+            self.cp_count = self.get_nb_cp(iface)
 
         self.current_time = info.time
         self.phase = info.phase
@@ -145,11 +153,11 @@ class MainClient(Client):
             #         self.cp_count = 0
 
         elif self.phase == BFPhase.SEARCH:
-            # if self.current_time == 14000:
-            #     state = iface.get_simulation_state()
-            #     car.update(state)
-            #     if car.z > 675:
-            #         response.decision = BFEvaluationDecision.REJECT
+            if self.current_time == 35000:
+                state = iface.get_simulation_state()
+                car.update(state)
+                if car.vel_x > 0 or car.vel_y < 0 or car.vel_z < 0:
+                    response.decision = BFEvaluationDecision.REJECT
 
             if self.is_eval_time():
                 state = iface.get_simulation_state()
@@ -167,7 +175,6 @@ class MainClient(Client):
                             self.save_result(f"{self.best}", iface)
                         else:
                             response.decision = BFEvaluationDecision.ACCEPT
-                            self.cp_count = -1
                     # else:
                     #     print(f"not better at {self.current_time}: {self.current=}")
                         
@@ -177,10 +184,12 @@ class MainClient(Client):
                     # print("a")
                     response.decision = BFEvaluationDecision.REJECT
 
-                self.cp_count = -1
-
             # if self.current_time > TIME_MAX:
             #     response.decision = BFEvaluationDecision.REJECT
+            
+            # If we will rewind the run, invalidate cp_count so it is recalculated next tick
+            if response.decision != BFEvaluationDecision.DO_NOTHING:
+                self.cp_count = -1
 
         return response
 
@@ -200,7 +209,7 @@ class MainClient(Client):
         #     self.cp_count = self.get_nb_cp(iface)
 
         # return True
-        return car.y > 25
+        return car.z < 742
         return car.x > 900 and car.speed_kmh > 450 and abs(car.yaw_deg - 90) < 45 and car.y > 42
         return abs(car.yaw_rad + 0.2) < 0.02
         # return self.cp_count == 1
@@ -251,21 +260,23 @@ class MainClient(Client):
 
     def is_force_accept(self):
         """Ultimate goal, forces bruteforce to save the result and stop"""
-        # if self.cp_count == -1:
-        #     self.cp_count = self.get_nb_cp()
         # return self.cp_count == 25
-        return self.cp_count == 6
         return False
 
     def is_custom(self, state="", min_diff=0):
         """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-        self.current = abs(car.pitch_deg - 90)
-        self.current = car.z
+        # self.current = abs(car.pitch_deg - 90)
+        # self.current = car.z
+
         # self.current = get_dist_2_points(POINT_POS, state.position, "xz")
-        # self.current = car.get_speed("xz")
+        # if self.best == -1:
+        #     return True
+        # return self.current < self.best - min_diff
+
+        self.current = car.get_speed("xz")
         if self.best == -1:
             return True
-        return self.current < self.best + min_diff
+        return self.current > self.best + min_diff
 
     def is_better(self, state, min_diff=0):
         if self.is_force_accept():
@@ -394,7 +405,7 @@ class MainClient(Client):
 
     def on_checkpoint_count_changed(self, iface, current: int, target: int):
         self.cp_count = current
-        iface.prevent_simulation_finish() # ?
+        # iface.prevent_simulation_finish() # ?
         # print(f"{current}")
         
     def save_result(self, result_name, iface):
