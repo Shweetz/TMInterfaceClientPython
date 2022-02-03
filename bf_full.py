@@ -40,12 +40,12 @@ class TimeCompare(IntEnum):
 
 """START OF PARAMETERS BLOCK (change this to your needs)"""
 eval = Eval.TIME
-parameter = Optimize.CUSTOM
+parameter = Optimize.DISTANCE
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
-TIME_MIN = 15500
-TIME_MAX = TIME_MIN
+TIME_MIN = 32500
+TIME_MAX = 32500
 
 # TIME_MIN = 21000
 # TIME_MAX = TIME_MIN
@@ -54,22 +54,17 @@ TIME_MAX = TIME_MIN
 CP_NUMBER = 1
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [955, 25, 788] # 4500
-POINT_POS = [604, 25, 654] # 9000
-POINT_POS = [370, 25, 485] # 11500
-POINT_POS = [96, 25, 739] # 15000
-POINT_POS = [136, 25, 826] # 16000
-POINT_POS = [453, 25, 369] # 21500
-POINT_POS = [272, 90, 1000] # C11
+POINT_POS = [816, 64, 464]
+POINT_POS = [768, 70, 477]
 
 # trigger_shape != TriggerShape.NONE:
-TRIGGER = [523.322, 9.357, 458.330, 0.01]
+TRIGGER = [523, 9, 458, 550, 20, 490]
 
 # True to keep base run and not use last improvement's inputs as base for next iterations
-LOCK_BASE_RUN = False
+LOCK_BASE_RUN = True
 
 # Min diff to consider an improvement worthy
-min_diff = 1
+min_diff = 0
 min_diff_frac = 0
 """END OF PARAMETERS BLOCK"""
 
@@ -81,14 +76,14 @@ class MainClient(Client):
         self.force_accept = False
         self.force_reject = False
         self.phase = BFPhase.INITIAL
-        # self.nb_cp = 0
+        self.current_time = 0
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
         print(f'{eval.__str__()}, {parameter.__str__()}, {trigger_shape.__str__()}, {LOCK_BASE_RUN=}, {min_diff=}, {min_diff_frac=}')
 
     def on_simulation_begin(self, iface):
-        iface.remove_state_validation()
+        # iface.remove_state_validation()
         self.lowest_time = iface.get_event_buffer().events_duration
         print(f"Base run time: {self.lowest_time}")
         if eval == Eval.TIME:
@@ -209,7 +204,7 @@ class MainClient(Client):
         #     self.cp_count = self.get_nb_cp(iface)
 
         # return True
-        return car.z < 742
+        return car.x > 700 and car.y > 55 and 445 < car.z < 520
         return car.x > 900 and car.speed_kmh > 450 and abs(car.yaw_deg - 90) < 45 and car.y > 42
         return abs(car.yaw_rad + 0.2) < 0.02
         # return self.cp_count == 1
@@ -265,15 +260,15 @@ class MainClient(Client):
 
     def is_custom(self, state="", min_diff=0):
         """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-        # self.current = abs(car.pitch_deg - 90)
-        # self.current = car.z
+        # self.current = abs(car.pitch_deg - 90) + car.roll_deg
+        self.current = car.y
 
         # self.current = get_dist_2_points(POINT_POS, state.position, "xz")
         # if self.best == -1:
         #     return True
         # return self.current < self.best - min_diff
 
-        self.current = car.get_speed("xz")
+        # self.current = car.get_speed("xz")
         if self.best == -1:
             return True
         return self.current > self.best + min_diff
