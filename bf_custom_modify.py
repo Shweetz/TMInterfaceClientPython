@@ -12,50 +12,15 @@ from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
 from commandlist import CommandList, InputCommand, InputType
 import load_state
-
-# class Input(IntEnum):
-#     UP = BINARY_ACCELERATE_NAME
-#     DOWN = BINARY_BRAKE_NAME
-#     STEER = ANALOG_STEER_NAME
-
-class ChangeType(IntEnum):
-    STEER_DIFF = 0
-    TIMING = 1
-    AVG_REBRUTE = 2
-     # TODO CREATE_REMOVE = 2
-
-@dataclass
-class Change:
-    input : str
-    change_type : ChangeType
-    proba : float
-    start_time : int
-    end_time : int
-    diff : int
-
-    def __str__(self):
-        return f"rule: From {self.start_time} to {self.end_time}ms, change {self.change_type.name} for {self.input} with max diff of {self.diff} and modify_prob={self.proba}"
+from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
 
 """START OF PARAMETERS (you can change here)"""
 rules = []
-# Examples
-# rules.append(Change(0.02, 10000, 12000, Input.UP, ChangeType.TIMING, 50))
-# rules.append(Change(0.1, 0, 100, Input.DOWN, ChangeType.CREATE_REMOVE, 0))
-# rules.append(Change(Input.STEER, ChangeType.STEER_DIFF,     proba=0.01, start_time=40000, end_time=42880, diff=65536))
 
-# A-0
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=1, start_time=0, end_time=4390, diff=100))
-
-# A07
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, value=15000))
-
-# Decimation CP 41 10:16.25
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=0.01, start_time=610000, end_time=616250, diff=65536))
-
-# Custom
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=17800, end_time=19500, diff=65536))
-rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0.02, start_time=17800, end_time=19500, diff=20))
-rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0.02, start_time=17800, end_time=19500, diff=50))
+rules.append(Rule(Input.STEER, Change.STEER_, proba=0.05, start_time="0.00", end_time="4.38", diff=2500))
+# rules.append(Rule(Input.STEER, Change.TIMING, proba=0.5, start_time="0.00", end_time="4.00", diff=100))
+# rules.append(Rule(Input.UP___, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
+# rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
 
 # TODO
 # rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
@@ -68,7 +33,7 @@ LOAD_REPLAY_FROM_STATE = False
 
 # steer_cap_accept = True
 steer_equal_last_input_proba = 0.1
-steer_zero_proba = 0.5 # proba to randomize steer to 0 instead of changing direction left/right 
+steer_zero_proba = 0.3 # proba to randomize steer to 0 instead of changing direction left/right 
 """END OF PARAMETERS"""
 
 # Files stuff
@@ -83,8 +48,14 @@ class Phase(IntEnum):
 #     TIED = 2
 #     FASTER_ESTIMATING = 3
 
+for rule in rules:
+    rule.init()
+
 lowest_poss_change = min([c.start_time for c in rules])
 highest_poss_change = max([c.end_time for c in rules])
+
+if not lowest_poss_change <= highest_poss_change:
+    print("ERROR: MUST HAVE 'lowest_poss_change <= highest_poss_change'")
 
 
 class MainClient(Client):
@@ -99,7 +70,7 @@ class MainClient(Client):
         # self.base_velocity = None
         self.best_coeff = -1
         self.nb_iterations = 0
-        self.lowest_time = 23730
+        self.lowest_time = -1
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
@@ -118,7 +89,7 @@ class MainClient(Client):
         if FILL_INPUTS:
             self.fill_inputs()
 
-        # self.lowest_time = self.begin_buffer.events_duration
+        self.lowest_time = self.begin_buffer.events_duration
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.current_buffer.to_commands_str())
 
@@ -199,7 +170,7 @@ class MainClient(Client):
         elif self.phase == Phase.ESTIMATING_PRECISE_FINISH:
             # Needs estimating, either because it's unclear if iteration is faster or because new best iteration needs
             estimate_current_iteration = self.estimate_iteration(iface, _time)
-
+            
             if estimate_current_iteration == "worse":
                 # Start new iteration
                 self.start_new_iteration(iface)
@@ -298,8 +269,8 @@ class MainClient(Client):
         # Apply rules to self.current_buffer.events
         for rule in rules:
             # only inputs that match the rule (ex: steer)
-            events = self.current_buffer.find(event_name=rule.input)
-            if rule.change_type == ChangeType.STEER_DIFF or rule.change_type == ChangeType.TIMING:
+            events = self.current_buffer.find(event_name=rule.input.value)
+            if rule.change_type == Change.STEER_ or rule.change_type == Change.TIMING:
                 last_steer = 0
                 for event in events:
                     event_realtime = event.time - 100010
@@ -308,7 +279,7 @@ class MainClient(Client):
                         # event proba
                         if random.random() < rule.proba:
                             # event type
-                            if rule.change_type == ChangeType.STEER_DIFF:
+                            if rule.change_type == Change.STEER_:
                                 if random.random() < steer_equal_last_input_proba:
                                     event.analog_value = last_steer
                                 else:
@@ -321,7 +292,7 @@ class MainClient(Client):
                                     event.analog_value = min(event.analog_value, 65536)
                                     event.analog_value = max(event.analog_value, -65536)
                                     
-                            if rule.change_type == ChangeType.TIMING:
+                            if rule.change_type == Change.TIMING:
                                 # ms -> 0.01
                                 diff = random.randint(-rule.diff/10, rule.diff/10)
                                 # 0.01 -> ms
@@ -330,7 +301,7 @@ class MainClient(Client):
                     if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
                         last_steer = event.analog_value
 
-            elif rule.change_type == ChangeType.AVG_REBRUTE:
+            elif rule.change_type == Change.AVG_REBRUTE:
                 if rule.state == "":
                     # gather events
                     rule.events = []

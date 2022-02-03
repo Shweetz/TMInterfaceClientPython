@@ -2,36 +2,38 @@
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
+from tminterface.constants import SIMULATION_WHEELS_SIZE
 
-import datetime
 from enum import IntEnum
 import math
 import numpy
-import shutil
+import os
+import struct
 import sys
+import time
 
-# Eval time: CP if optimizing CP, else use a shorter time frame for slightly faster bf
 class Eval(IntEnum):
+    """Eval time: CP if optimizing CP, else use a shorter time frame for slightly faster bf"""
     TIME = 0
     CP = 1
 
-# What to optimize for
 class Optimize(IntEnum):
+    """What to optimize for"""
     CUSTOM = 0
     TIME = 1
     DISTANCE = 2
     VELOCITY = 3
     DIST_VELO = 4
 
-# What to optimize for
 class TriggerShape(IntEnum):
+    """What to optimize for"""
     NONE = 0
     RECTANGLE = 1
     SPHERE = 2
     DIAGONAL = 3
 
-# Compares current iteration's time vs best iteration's time 
 class TimeCompare(IntEnum):
+    """Compares current iteration's time vs best iteration's time"""
     EARLIER = 0
     TIED = 1
     LATER = 2
@@ -42,21 +44,33 @@ parameter = Optimize.CUSTOM
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
-TIME_MIN = 22000
+TIME_MIN = 18500
 TIME_MAX = TIME_MIN
 
+# TIME_MIN = 21000
+# TIME_MAX = TIME_MIN
+
 # eval == Eval.CP:
-CP_NUMBER = 2
+CP_NUMBER = 1
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [503.556, 9.355, 552.009]
+POINT_POS = [955, 25, 788] # 4500
+POINT_POS = [604, 25, 654] # 9000
+POINT_POS = [370, 25, 485] # 11500
+POINT_POS = [96, 25, 739] # 15000
+POINT_POS = [136, 25, 826] # 16000
+POINT_POS = [453, 25, 369] # 21500
+POINT_POS = [272, 90, 1000] # C11
 
 # trigger_shape != TriggerShape.NONE:
-TRIGGER = [417, 112, 734, 447, 96, 704] # DIAG A07 uphill
+TRIGGER = [523, 9, 458, 550, 20, 490]
+
+# True to keep base run and not use last improvement's inputs as base for next iterations
+LOCK_BASE_RUN = False
 
 # Min diff to consider an improvement worthy
 min_diff = 0
-LOCK_BASE_RUN = True
+min_diff_frac = 0
 """END OF PARAMETERS BLOCK"""
 
 class MainClient(Client):
@@ -67,29 +81,19 @@ class MainClient(Client):
         self.force_accept = False
         self.force_reject = False
         self.phase = BFPhase.INITIAL
-        # self.nb_cp = 0
+        self.current_time = 0
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
-        print(f'{eval.__str__()}, {parameter.__str__()}, {trigger_shape.__str__()}, {min_diff=}')
-
-    # def on_run_step(self, iface, _time):
-    #     x1, y1, z1, x2, y2, z2 = TRIGGER
-    #     # z = f(x) = ax + b
-    #     self.diag_slope = (x2-x1) / (z2-z1)
-    #     self.diag_offset = x1 - (z1*self.diag_slope)
-    #     if z2-z1 > 0:
-    #         self.diag_above = "above"
-    #     else:
-    #         self.diag_above = "below"
-    #     state = iface.get_simulation_state()
-    #     car.update(state)
-    #     a = car.is_above_diag(self.diag_slope, self.diag_offset)
-    #     print(f"{self.diag_above=}, {a}")
+        print(f'{eval.__str__()}, {parameter.__str__()}, {trigger_shape.__str__()}, {LOCK_BASE_RUN=}, {min_diff=}, {min_diff_frac=}')
 
     def on_simulation_begin(self, iface):
-        iface.remove_state_validation()
+        # iface.remove_state_validation()
         self.lowest_time = iface.get_event_buffer().events_duration
+        print(f"Base run time: {self.lowest_time}")
+        if eval == Eval.TIME:
+            if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
+                print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
 
         if trigger_shape == TriggerShape.DIAGONAL:
             x1, y1, z1, x2, y2, z2 = TRIGGER
@@ -104,8 +108,10 @@ class MainClient(Client):
             print(f"{self.diag_above=}")
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
-        if self.phase != info.phase:
-            self.cp_count = -1
+        # Manually get nb CPs after rewinding (new SEARCH iteration or getting in or out of INITIAL base run)
+        # if self.phase != info.phase or self.cp_count == -1:
+        if info.time < self.current_time:
+            self.cp_count = self.get_nb_cp(iface)
 
         self.current_time = info.time
         self.phase = info.phase
@@ -147,11 +153,19 @@ class MainClient(Client):
             #         self.cp_count = 0
 
         elif self.phase == BFPhase.SEARCH:
+            if self.current_time == 35000:
+                state = iface.get_simulation_state()
+                car.update(state)
+                if car.vel_x > 0 or car.vel_y < 0 or car.vel_z < 0:
+                    response.decision = BFEvaluationDecision.REJECT
+
             if self.is_eval_time():
                 state = iface.get_simulation_state()
                 car.update(state)
                 if self.condition(iface):
-                    # min_diff = self.best / 100
+                    if min_diff_frac != 0:
+                        global min_diff
+                        min_diff = self.best / min_diff_frac
                     if self.is_better(state, min_diff):
                         if LOCK_BASE_RUN:
                             self.best = self.current
@@ -161,7 +175,6 @@ class MainClient(Client):
                             self.save_result(f"{self.best}", iface)
                         else:
                             response.decision = BFEvaluationDecision.ACCEPT
-                            self.cp_count = -1
                     # else:
                     #     print(f"not better at {self.current_time}: {self.current=}")
                         
@@ -171,18 +184,20 @@ class MainClient(Client):
                     # print("a")
                     response.decision = BFEvaluationDecision.REJECT
 
-                self.cp_count = -1
-
             # if self.current_time > TIME_MAX:
             #     response.decision = BFEvaluationDecision.REJECT
+            
+            # If we will rewind the run, invalidate cp_count so it is recalculated next tick
+            if response.decision != BFEvaluationDecision.DO_NOTHING:
+                self.cp_count = -1
 
         return response
 
-    """Returns False if conditions are not met so run is rejected"""
     def condition(self, iface):
+        """Returns False if conditions are not met so run is rejected"""
         state = iface.get_simulation_state()
 
-        # if car.y > 68:
+        # if car.has_at_least_1_wheel_in_air():
         #     self.force_reject = True
         #     return False
 
@@ -193,7 +208,10 @@ class MainClient(Client):
         # if self.cp_count == -1:
         #     self.cp_count = self.get_nb_cp(iface)
 
-        # return True
+        return True
+        return car.z > 572
+        return car.x > 900 and car.speed_kmh > 450 and abs(car.yaw_deg - 90) < 45 and car.y > 42
+        return abs(car.yaw_rad + 0.2) < 0.02
         # return self.cp_count == 1
         return car.x < 450
         return car.vel_x > 0 and car.vel_z > 0
@@ -217,8 +235,8 @@ class MainClient(Client):
         yaw_pitch_roll = 1.47 < car.pitch_rad < 1.67
         return pos and speed and yaw_pitch_roll
         
-    """Returns False if car is not in trigger"""
     def trigger_condition(self, state):
+        """Returns False if car is not in trigger"""
         if trigger_shape == TriggerShape.RECTANGLE:
             x1, y1, z1, x2, y2, z2 = TRIGGER
             if not (min(x1,x2) < car.x < max(x1,x2) and min(y1,y2) < car.y < max(y1,y2) and min(z1,z2) < car.z < max(z1,z2)):
@@ -240,20 +258,28 @@ class MainClient(Client):
 
         return True
 
-    """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
+    def is_force_accept(self):
+        """Ultimate goal, forces bruteforce to save the result and stop"""
+        # return self.cp_count == 25
+        return False
+
     def is_custom(self, state="", min_diff=0):
+        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
+        # self.current = abs(car.pitch_deg - 90)
+        # self.current = car.z
+        # if self.best == -1:
+        #     return True
+        # return self.current > self.best + min_diff
+
+        # self.current = get_dist_2_points(POINT_POS, state.position, "xz")
+        # if self.best == -1:
+        #     return True
+        # return self.current < self.best - min_diff
+
         self.current = car.get_speed("xz")
         if self.best == -1:
             return True
         return self.current > self.best + min_diff
-
-    """Ultimate goal, forces bruteforce to save the result and stop"""
-    def is_force_accept(self):
-        # if self.cp_count == -1:
-        #     self.cp_count = self.get_nb_cp()
-        # return self.cp_count == 25
-        return self.cp_count == 2
-        return False
 
     def is_better(self, state, min_diff=0):
         if self.is_force_accept():
@@ -314,20 +340,16 @@ class MainClient(Client):
         return self.current > self.best + min_diff
     
     def is_earlier_or_closer(self, state, min_diff=0, axis="xyz"):
+        """Implementation of TMI trigger for distance"""
         self.current = get_dist_2_points(POINT_POS, state.position, axis)
-        # if self.best == -1 and self.current < 40:
-        if self.best == -1:
-            return True
-        # self.compare_time() with TIME_MAX ?
         global TIME_MAX
-        if self.current_time < TIME_MAX:
+        if self.best == -1 or self.current_time < TIME_MAX:
             TIME_MAX = self.current_time
             return True
-        if self.current_time > TIME_MAX:
-            return False
         return self.current < self.best - min_diff
 
     def is_earlier_or_faster(self, min_diff):
+        """Implementation of TMI trigger for distance,velocity (code is different and most likely worse than distance)"""
         self.current = car.speed_kmh
         if self.compare_time() == TimeCompare.EARLIER:
             return True
@@ -376,7 +398,7 @@ class MainClient(Client):
                 self.cp_count = 0
                 return True
         
-        return False            
+        return False
 
     def get_nb_cp(self, iface):
         cp_times = iface.get_checkpoint_state().cp_times
@@ -386,21 +408,22 @@ class MainClient(Client):
 
     def on_checkpoint_count_changed(self, iface, current: int, target: int):
         self.cp_count = current
-        iface.prevent_simulation_finish() # ?
+        # iface.prevent_simulation_finish() # ?
         # print(f"{current}")
         
     def save_result(self, result_name, iface):
-        res_file = "C:/Users/rmnlm/Documents/TMInterface/Scripts/result.txt"
+        # res_file = "C:/Users/rmnlm/Documents/TMInterface/Scripts/result.txt"
+        res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + "result.txt"
         # Write in result.txt if base run is locked, else ACCEPT takes care of it
         if LOCK_BASE_RUN:
             with open(res_file, "w") as f:
                 f.write(iface.get_event_buffer().to_commands_str())
 
         # Copy result.txt in another file
-        date = datetime.datetime.now()
-        date = date.strftime("%Y%m%d_%H%M%S")
-        dest = res_file.replace("result.txt", f"{date}_{result_name}.txt")
-        shutil.copy2(res_file, dest)
+        # date = datetime.datetime.now()
+        # date = date.strftime("%Y%m%d_%H%M%S")
+        # dest = res_file.replace("result.txt", f"{date}_{result_name}.txt")
+        # shutil.copy2(res_file, dest)
 
 def get_dist_2_points(pos1, pos2, axis="xyz"):
     dist = 0
@@ -414,6 +437,8 @@ def get_dist_2_points(pos1, pos2, axis="xyz"):
 
 class Car():
     def update(self, state):
+        self.state = state
+        
         self.position = state.position
         self.x, self.y, self.z = state.position
         self.yaw_rad, self.pitch_rad, self.roll_rad = state.yaw_pitch_roll
@@ -441,6 +466,17 @@ class Car():
         if "z" in axis:
             ret += self.vel_z ** 2
         return ret ** 0.5
+
+    def has_at_least_1_wheel_in_air(self):
+        wheel_size = SIMULATION_WHEELS_SIZE // 4
+        
+        for i in range(4):
+            current_offset = wheel_size * i
+            hasgroundcontact = struct.unpack('i', self.state.simulation_wheels[current_offset+292:current_offset+296])[0]
+            if hasgroundcontact == 0:
+                return True
+
+        return False
     
     def is_above_diag(self, diag_slope, diag_offset):
         diag_x = (self.z*diag_slope) + diag_offset
@@ -462,11 +498,11 @@ if __name__ == '__main__':
 
 """
 Ideas:
-- force_reject
 - get_nb_cp to fix bug of nb_cp when no cp is crossed between rewinds
 - With trigger, evaluate as soon as trigger is crossed (if not condition, then reject)
 - TIME_MAX = self.time for Optimize.TIME and Optimize.DIST_VELO
 
 Done:
 - condition() before is_better()
+- force_reject
 """
