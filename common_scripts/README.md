@@ -27,4 +27,13 @@ Open the script and change the first line TIME_MIN with the time at which the ca
 Activate TMI's bruteforce 
 
 Open the script and change the first line TIME_MIN with the time at which the car's distance to a point will be evaluated
+
 Also change POINT, the x,y,z coordinates of the point to get close to
+
+
+## 6. bf_nosepos_jav.py
+Activate TMI's bruteforce 
+
+Open the script and change the first line TIME_MIN with the time at which the car's nose position will be evaluated
+
+Nose position is yaw being closest to where the car is going, pitch is closest to 90° and roll to 0° (script by JaV)
