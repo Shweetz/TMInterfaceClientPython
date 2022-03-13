@@ -11,15 +11,15 @@ from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
 from tminterface.commandlist import CommandList, InputCommand, InputType
-import load_state
+from save_load_state import load_state
 from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
 
 """START OF PARAMETERS (you can change here)"""
 rules = []
 
-rules.append(Rule(Input.STEER, Change.STEER_, proba=0.005, start_time="13.30", end_time="22.00", diff=65536))
+rules.append(Rule(Input.STEER, Change.STEER_, proba=0.01, start_time="20.30", end_time="24.00", diff=65536))
 # rules.append(Rule(Input.UP___, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
-rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="13.30", end_time="22.00", diff=30))
+rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="20.30", end_time="24.00", diff=30))
 # rules.append(Rule(Input.STEER, Change.TIMING, proba=0.5, start_time="0.00", end_time="4.00", diff=100))
 
 PRECISION = 0.001
@@ -94,7 +94,7 @@ class MainClient(Client):
         if LOAD_REPLAY_FROM_STATE:
             file_name = "../States/state.bin"
             self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
-            self.state_min_change = load_state.load_state(self.state_file)
+            self.state_min_change = load_state(self.state_file)
             iface.rewind_to_state(self.state_min_change)
         
     def fill_inputs(self, start_fill=0, end_fill=0):
