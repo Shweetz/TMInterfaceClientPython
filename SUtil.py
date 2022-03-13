@@ -206,24 +206,52 @@ def ms_to_sec(line_time: str) -> str:
     """Converter ms->sec for time value
     Example: '763900' -> '12:43.90'
     """
+    time_sec = ""
+
     if type(line_time) == int:
         line_time = str(line_time)
 
     if "." in line_time or line_time == "0":
         return line_time
 
+    if line_time.startswith("-"):
+        line_time = line_time[1:]
+        time_sec += "-"
+        
     minutes, milliseconds = divmod(int(line_time), 60 * 1000)
     hours, minutes = divmod(minutes, 60)
     seconds = milliseconds / 1000
 
-    value = ""    
     if hours > 0:
-        value += str(hours) + ":"
+        time_sec += str(hours) + ":"
     if minutes > 0 or hours > 0:
-        value += str(minutes) + ":"
-    value += f"{seconds:.2f}"
+        time_sec += str(minutes) + ":"
+    time_sec += f"{seconds:.2f}"
 
-    return value
+    return time_sec
+
+
+def to_sec(inputs_str: str) -> str:
+    """Transform a string containing lines of inputs to min:sec.ms format"""
+
+    def ms_to_sec_line(line: str) -> str:
+        """Converter ms->sec for entire line"""
+        if "." in line or line == "":
+            return line
+        splits = line.split(" ")
+        if "-" in splits[0]:            
+            press_time, rel_time = splits[0].split("-")
+            splits[0] = ms_to_sec(press_time) + "-" + ms_to_sec(rel_time)
+        else:
+            splits[0] = ms_to_sec(splits[0])
+        return " ".join(splits)
+
+    result_string = ""
+    for line in inputs_str.split("\n"):
+        if line != "":
+            result_string += ms_to_sec_line(line) + "\n"
+    
+    return result_string
 
 def to_rad(deg):
     return deg / 180 * math.pi

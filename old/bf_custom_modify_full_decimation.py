@@ -23,9 +23,9 @@ from save_load_state import load_state
 rules = []
 
 FILL_INPUTS = True
-end   = "23:41.21"
-start = "23:03.00"
-start = ms_to_sec(int(sec_to_ms(end)) - 5500)
+end   = "24:59.10"
+start = "24:56.75"
+# start = ms_to_sec(int(sec_to_ms(end)) - 5500)
 
 if FILL_INPUTS:
     proba = 0.01
@@ -41,9 +41,8 @@ rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.1, start_time=start, end_t
 # rules.append(Rule(Input.STEER, Change.TIMING, proba=0.2 , start_time=start, end_time=end, diff=50))
 
 LOCK_BASE_RUN = False
-LOAD_INPUTS_FROM_FILE = True
-SAVE_REPLAY_FROM_STATE = False
-LOAD_REPLAY_FROM_STATE = "state.bin"
+LOAD_INPUTS_FROM_FILE = "work.txt"
+LOAD_REPLAY_FROM_STATE = "state99.bin"
 # LOAD_REPLAY_FROM_STATE = ""
 
 # steer_cap_accept = True
@@ -53,11 +52,11 @@ steer_zero_proba = 0.5 # proba to set steer to 0 instead of changing direction l
 steer_full_proba = p
 
 # From previous script
-eval = Eval.CP
-parameter = Optimize.TIME
+eval = Eval.TIME
+parameter = Optimize.CUSTOM
 
 TIME = end
-TIME_MIN = int(sec_to_ms(TIME)) - 2000
+TIME_MIN = int(sec_to_ms(TIME))
 TIME_MAX = int(sec_to_ms(TIME))
 
 # eval == Eval.CP:
@@ -67,7 +66,7 @@ CP_NUMBER = 93
 POINT_POS = [295, 73.5, 760]
 
 # Min diff to consider an improvement worthy
-min_diff = 0
+min_diff = 0.01
 
 SYNTAX_MS = False
 """END OF PARAMETERS"""
@@ -105,6 +104,9 @@ class MainClient(Client):
         print(f"Randomizing inputs between {lowest_poss_change} and {highest_poss_change}")
         for rule in rules:
             print(rule)
+
+    def on_deregistered(self, iface: TMInterface) -> None:
+        print(f'Deregistered from {iface.server_name}')
 
     def on_simulation_begin(self, iface):
         # print("on_simulation_begin start")
@@ -171,6 +173,8 @@ class MainClient(Client):
             # print(f"event_time={event_time}")
             events_at_time = buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
             if len(events_at_time) > 0:
+                if len(events_at_time) > 1:
+                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
                 curr_steer = events_at_time[-1].analog_value
                 # print(f"start steer={curr_steer}")
                 break
@@ -179,6 +183,8 @@ class MainClient(Client):
         for event_time in range(start_fill, end_fill+10, 10):
             events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
             if len(events_at_time) > 0:
+                if len(events_at_time) > 1:
+                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
                 curr_steer = events_at_time[-1].analog_value
             else:
                 self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
@@ -244,8 +250,6 @@ class MainClient(Client):
     def condition(self):
         """Returns False if conditions are not met so run is rejected"""
         return True
-        return abs(self.car.pitch_rad) < 1.507 and self.car.y > 56 # not turtled
-        return self.car.y > 48
         
     def is_better(self, state):
         self.car = Car(self.race_time)
@@ -282,28 +286,30 @@ class MainClient(Client):
         # turtle
         # if not abs(self.car.pitch_deg) > math.pi/2:
         #     return False
+        if not abs(self.car.pitch_rad) + abs(self.car.roll_rad) < 1:
+            return False
         # # print(self.car.y)
         # if not 959 < self.car.x:
         #     return False
-        if not 91.5 < self.car.y:
+        if not 93 < self.car.y:
             return False
         # if not 725 < self.car.z < 733:
         #     return False
-        if not self.car.yaw_deg > 70:
-            return False
+        # if not self.car.yaw_deg > 70:
+        #     return False
         # if not self.cp_count >= 85:
         #     return False
 
         # self.car.custom = abs(car.pitch_deg - 90)
-        self.car.custom = self.car._time
-        # self.car.custom = self.car.x + self.car.z
+        # self.car.custom = self.car._time
+        self.car.custom = self.car.vel_y*0.5 - self.car.vel_z
         # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
         # self.car.custom = self.car.get_speed("xz")
         
         if base_run:
             print(f"Base run custom = {self.car.custom}")
             return True
-        elif self.car.custom > self.best_car.custom:
+        elif self.car.custom > self.best_car.custom + min_diff:
             print(f"Improved custom = {self.car.custom}")
             return True
 
@@ -568,7 +574,7 @@ class MainClient(Client):
         with open(res_file, "w") as f:
             f.write(inputs_str)
 
-    def load_inputs_from_file(self, file_name="work.txt"):
+    def load_inputs_from_file(self, file_name="inputs.txt"):
         # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
         self.begin_buffer.clear()
         self.pre_rewind_buffer.clear()
