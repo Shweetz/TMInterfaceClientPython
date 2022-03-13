@@ -1,5 +1,10 @@
+__pycache__/
+*.py[cod]
+docs/_static
+docs/_templates
+docs/_build
 
-*.pyc
 gui_auto/*
 write_best_time.txt
 */tmp.py
+
