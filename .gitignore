@@ -6,3 +6,5 @@ docs/_build
 
 *.pyc
 gui_auto/*
+write_best_time.txt
+*/tmp.py
