@@ -1,10 +1,11 @@
-
 from dataclasses import dataclass
 from enum import IntEnum, Enum
 import math
 import numpy
+import struct
 
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME, BINARY_RESPAWN_NAME
+from tminterface.constants import SIMULATION_WHEELS_SIZE
 
 class Input(Enum):
     UP___ = BINARY_ACCELERATE_NAME
@@ -17,8 +18,8 @@ class Input(Enum):
 class Change(IntEnum):
     STEER_ = 0
     TIMING = 1
-    AVG_REBRUTE = 2
-     # TODO CREATE_REMOVE = 2
+    CREATE = 2
+    AVG_REBRUTE = 3
 
 class Eval(IntEnum):
     """Eval time: CP if optimizing CP, else use a shorter time frame for slightly faster bf"""
@@ -78,6 +79,18 @@ class Car():
         self.stunts_score = int.from_bytes(state.player_info[724:724+4], byteorder='little')
         if self.stunts_score > 1000000:
             self.stunts_score = 0
+
+    @property
+    def nb_wheels_on_ground(self):
+        number = 0
+        
+        for i in range(4):
+            current_offset = (SIMULATION_WHEELS_SIZE // 4) * i
+            hasgroundcontact = struct.unpack('i', self.state.simulation_wheels[current_offset+292:current_offset+296])[0]
+            if hasgroundcontact:
+                number += 1
+
+        return number
 
     def get_speed(self, axis="xz"):
         return self.get_vel(axis) * 3.6
@@ -199,36 +212,39 @@ def ms_to_sec(line_time: str) -> str:
     if "." in line_time or line_time == "0":
         return line_time
 
-    # print(line_time)
-
-    seconds, milliseconds = divmod(int(line_time), 1000)
-    minutes, seconds = divmod(seconds, 60)
+    minutes, milliseconds = divmod(int(line_time), 60 * 1000)
     hours, minutes = divmod(minutes, 60)
-    
-    # print(hours)
-    # print(minutes)
-    # print(seconds)
-    # print(milliseconds)
+    seconds = milliseconds / 1000
 
-    value = ""
-    
+    value = ""    
     if hours > 0:
         value += str(hours) + ":"
     if minutes > 0 or hours > 0:
         value += str(minutes) + ":"
-    value += str(seconds) + "."
-    value += str(milliseconds // 10)
+    value += f"{seconds:.2f}"
 
     return value
+
+def to_rad(deg):
+    return deg / 180 * math.pi
+
+def to_deg(rad):
+    return rad * 180 / math.pi
 
 def add_events_in_buffer(events, buffer):
     """
     events: list of Event
     buffer: EventBufferData (buffer.control_names must be filled)
     """
+    # print(buffer.control_names)
     for event in events:
-        event_time = event.time - 100010
-        event_name = buffer.control_names[event.name_index]
-        event_value = event.analog_value if "analog" in event_name else event.binary_value
-        buffer.add(event_time, event_name, event_value)
+        if event.name_index > len(buffer.control_names):
+            # print(event.name_index)
+            pass
+        else:
+            # print(event.name_index)
+            event_time = event.time - 100010
+            event_name = buffer.control_names[event.name_index]
+            event_value = event.analog_value if "analog" in event_name else event.binary_value
+            buffer.add(event_time, event_name, event_value)
     

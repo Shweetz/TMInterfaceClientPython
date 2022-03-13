@@ -40,12 +40,12 @@ class TimeCompare(IntEnum):
 
 """START OF PARAMETERS BLOCK (change this to your needs)"""
 eval = Eval.TIME
-parameter = Optimize.DISTANCE
+parameter = Optimize.VELOCITY
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
-TIME_MIN = 32500
-TIME_MAX = 32500
+TIME_MIN = 8500
+TIME_MAX = 9520
 
 # TIME_MIN = 21000
 # TIME_MAX = TIME_MIN
@@ -54,14 +54,13 @@ TIME_MAX = 32500
 CP_NUMBER = 1
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [816, 64, 464]
-POINT_POS = [768, 70, 477]
+POINT_POS = [484, 32, 685]
 
 # trigger_shape != TriggerShape.NONE:
 TRIGGER = [523, 9, 458, 550, 20, 490]
 
 # True to keep base run and not use last improvement's inputs as base for next iterations
-LOCK_BASE_RUN = True
+LOCK_BASE_RUN = False
 
 # Min diff to consider an improvement worthy
 min_diff = 0
@@ -148,12 +147,6 @@ class MainClient(Client):
             #         self.cp_count = 0
 
         elif self.phase == BFPhase.SEARCH:
-            if self.current_time == 35000:
-                state = iface.get_simulation_state()
-                car.update(state)
-                if car.vel_x > 0 or car.vel_y < 0 or car.vel_z < 0:
-                    response.decision = BFEvaluationDecision.REJECT
-
             if self.is_eval_time():
                 state = iface.get_simulation_state()
                 car.update(state)
@@ -203,8 +196,8 @@ class MainClient(Client):
         # if self.cp_count == -1:
         #     self.cp_count = self.get_nb_cp(iface)
 
-        # return True
-        return car.x > 700 and car.y > 55 and 445 < car.z < 520
+        return True
+        return car.z > 710
         return car.x > 900 and car.speed_kmh > 450 and abs(car.yaw_deg - 90) < 45 and car.y > 42
         return abs(car.yaw_rad + 0.2) < 0.02
         # return self.cp_count == 1
@@ -255,20 +248,27 @@ class MainClient(Client):
 
     def is_force_accept(self):
         """Ultimate goal, forces bruteforce to save the result and stop"""
-        # return self.cp_count == 25
+        return self.cp_count == 1
         return False
 
     def is_custom(self, state="", min_diff=0):
         """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
+        dist = get_dist_2_points(POINT_POS, car.position, "xyz")
+        speed = car.get_speed("xz")
+
         # self.current = abs(car.pitch_deg - 90) + car.roll_deg
-        self.current = car.y
+        # self.current = car.y
 
         # self.current = get_dist_2_points(POINT_POS, state.position, "xz")
         # if self.best == -1:
         #     return True
         # return self.current < self.best - min_diff
+        
+        # condition
+        if not car.y > 25:
+            return False
 
-        # self.current = car.get_speed("xz")
+        self.current = -dist
         if self.best == -1:
             return True
         return self.current > self.best + min_diff
@@ -329,6 +329,8 @@ class MainClient(Client):
         self.current = min(car.speed_kmh, 1000)
         if self.best == -1:
             return True
+        if self.cp_count < CP_NUMBER:
+            return False
         return self.current > self.best + min_diff
     
     def is_earlier_or_closer(self, state, min_diff=0, axis="xyz"):
@@ -458,6 +460,17 @@ class Car():
         if "z" in axis:
             ret += self.vel_z ** 2
         return ret ** 0.5
+
+    def get_nb_wheels_on_ground(self):
+        nb_wheels_on_ground = 0
+        
+        for i in range(4):
+            current_offset = (SIMULATION_WHEELS_SIZE // 4) * i
+            hasgroundcontact = struct.unpack('i', self.state.simulation_wheels[current_offset+292:current_offset+296])[0]
+            if hasgroundcontact:
+                nb_wheels_on_ground += 1
+
+        return nb_wheels_on_ground
 
     def has_at_least_1_wheel_in_air(self):
         wheel_size = SIMULATION_WHEELS_SIZE // 4

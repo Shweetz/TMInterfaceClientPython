@@ -10,20 +10,17 @@ import time
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
-from commandlist import CommandList, InputCommand, InputType
+from tminterface.commandlist import CommandList, InputCommand, InputType
 import load_state
 from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
 
 """START OF PARAMETERS (you can change here)"""
 rules = []
 
-rules.append(Rule(Input.STEER, Change.STEER_, proba=0.05, start_time="0.00", end_time="4.38", diff=2500))
-# rules.append(Rule(Input.STEER, Change.TIMING, proba=0.5, start_time="0.00", end_time="4.00", diff=100))
+rules.append(Rule(Input.STEER, Change.STEER_, proba=0.005, start_time="13.30", end_time="22.00", diff=65536))
 # rules.append(Rule(Input.UP___, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
-# rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
-
-# TODO
-# rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
+rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="13.30", end_time="22.00", diff=30))
+# rules.append(Rule(Input.STEER, Change.TIMING, proba=0.5, start_time="0.00", end_time="4.00", diff=100))
 
 PRECISION = 0.001
 FILL_INPUTS = True
@@ -32,8 +29,8 @@ LOAD_INPUTS_FROM_FILE = False
 LOAD_REPLAY_FROM_STATE = False
 
 # steer_cap_accept = True
-steer_equal_last_input_proba = 0.1
-steer_zero_proba = 0.3 # proba to randomize steer to 0 instead of changing direction left/right 
+steer_equal_last_input_proba = 0.2
+steer_zero_proba = 0.2 # proba to randomize steer to 0 instead of changing direction left/right 
 """END OF PARAMETERS"""
 
 # Files stuff
