@@ -132,6 +132,7 @@ class MainClient(Client):
                 print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
 
         if self.lowest_time < TIME_MAX + 1000:
+            print("set_simulation_time_limit(TIME_MAX + 1000)")
             iface.set_simulation_time_limit(TIME_MAX + 1000)
         #     a = self.lowest_time
         #     self.lowest_time = TIME_MAX + 1000
