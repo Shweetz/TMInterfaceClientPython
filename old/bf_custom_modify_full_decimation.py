@@ -22,13 +22,18 @@ from save_load_state import load_state
 """START OF PARAMETERS (you can change here)"""
 rules = []
 
+LOAD_INPUTS_FROM_FILE = ""
+LOAD_REPLAY_FROM_STATE = "state141.bin"
+LOCK_BASE_RUN = False
+
 FILL_INPUTS = True
-end   = "24:59.10"
-start = "24:56.75"
+start = "34:02.50"
+end   = "34:08.00"
+TIME_LEN = 1000
 # start = ms_to_sec(int(sec_to_ms(end)) - 5500)
 
 if FILL_INPUTS:
-    proba = 0.01
+    proba = 0.005
 else:
     proba = 0.2
     rules.append(Rule(Input.STEER, Change.TIMING, proba=proba, start_time=start, end_time=end, diff=50))
@@ -40,33 +45,31 @@ rules.append(Rule(Input.UP___, Change.TIMING, proba=0.1, start_time=start, end_t
 rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
 # rules.append(Rule(Input.STEER, Change.TIMING, proba=0.2 , start_time=start, end_time=end, diff=50))
 
-LOCK_BASE_RUN = False
-LOAD_INPUTS_FROM_FILE = "work.txt"
-LOAD_REPLAY_FROM_STATE = "state99.bin"
-# LOAD_REPLAY_FROM_STATE = ""
-
-# steer_cap_accept = True
-p = 0.3
-steer_equal_last_input_proba = p # proba to make a steer equal to last steer
-steer_zero_proba = 0.5 # proba to set steer to 0 instead of changing direction left/right
-steer_full_proba = p
-
 # From previous script
 eval = Eval.TIME
 parameter = Optimize.CUSTOM
 
 TIME = end
-TIME_MIN = int(sec_to_ms(TIME))
+TIME_MIN = int(sec_to_ms(TIME)) - TIME_LEN
 TIME_MAX = int(sec_to_ms(TIME))
 
 # eval == Eval.CP:
-CP_NUMBER = 93
+CP_NUMBER = 132
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [295, 73.5, 760]
+POINT_POS = [451, 120, 870]
 
 # Min diff to consider an improvement worthy
 min_diff = 0.01
+
+# steer_cap_accept = True
+if FILL_INPUTS:
+    p = 0.3
+else:
+    p = 0
+steer_equal_last_input_proba = p # proba to make a steer equal to last steer
+steer_zero_proba = p # proba to set steer to 0 instead of changing direction left/right
+steer_full_proba = p
 
 SYNTAX_MS = False
 """END OF PARAMETERS"""
@@ -106,6 +109,7 @@ class MainClient(Client):
             print(rule)
 
     def on_deregistered(self, iface: TMInterface) -> None:
+        iface.execute_command("load result.txt")
         print(f'Deregistered from {iface.server_name}')
 
     def on_simulation_begin(self, iface):
@@ -119,6 +123,8 @@ class MainClient(Client):
         if eval == Eval.TIME:
             if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
                 print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
+            
+            iface.set_simulation_time_limit(TIME_MAX + 10)
 
         # if self.lowest_time < TIME_MAX + 1000:
         #     iface.set_simulation_time_limit(TIME_MAX + 1000)
@@ -193,7 +199,7 @@ class MainClient(Client):
         # print("on_simulation_step start")
         self.race_time = _time
         if not self.state_min_change:
-            if _time == 100 and LOAD_REPLAY_FROM_STATE:
+            if _time == 0 and LOAD_REPLAY_FROM_STATE:
                 self.load_replay_from_state(iface, LOAD_REPLAY_FROM_STATE)
 
             if LOAD_INPUTS_FROM_FILE and not LOAD_REPLAY_FROM_STATE:
@@ -286,15 +292,15 @@ class MainClient(Client):
         # turtle
         # if not abs(self.car.pitch_deg) > math.pi/2:
         #     return False
-        if not abs(self.car.pitch_rad) + abs(self.car.roll_rad) < 1:
-            return False
-        # # print(self.car.y)
-        # if not 959 < self.car.x:
+        # if not abs(self.car.pitch_rad) + abs(self.car.roll_rad) < 1:
         #     return False
-        if not 93 < self.car.y:
+        # # # print(self.car.y)
+        if not 000 < self.car.x < 9999:
             return False
-        # if not 725 < self.car.z < 733:
-        #     return False
+        if not 145 < self.car.y < 9999:
+            return False
+        if not 000 < self.car.z < 9999:
+            return False
         # if not self.car.yaw_deg > 70:
         #     return False
         # if not self.cp_count >= 85:
@@ -302,7 +308,7 @@ class MainClient(Client):
 
         # self.car.custom = abs(car.pitch_deg - 90)
         # self.car.custom = self.car._time
-        self.car.custom = self.car.vel_y*0.5 - self.car.vel_z
+        self.car.custom = - self.car.x - self.car.y*2 - self.car.z*0.3
         # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
         # self.car.custom = self.car.get_speed("xz")
         
@@ -401,10 +407,17 @@ class MainClient(Client):
         # if not self.car.yaw_deg > 80:
         #     return False
 
+        # if not 000 < self.car.x < 448:
+        #     return False
+        # if not 111 < self.car.y < 999:
+        #     return False
+        # if not 1014 < self.car.z < 1016:
+        #     return False
+
         if base_run:
             print(f"Base run time = {ms_to_sec(self.car._time - 10)}")
             return True
-        elif self.car._time < self.best_car._time - min_diff:
+        elif self.car._time < self.best_car._time:
             print(f"Improved time = {ms_to_sec(self.car._time - 10)}")
             return True
         
@@ -563,8 +576,8 @@ class MainClient(Client):
         inputs_str = f"# Time: {time_found}, iterations: {self.nb_iterations}\n" + inputs_str
         
         # Footer
-        inputs_str += f"0 load_state state.bin\n"
-        inputs_str += f"0 set draw_game false\n"
+        inputs_str += f"0 load_state {LOAD_REPLAY_FROM_STATE}\n"
+        # inputs_str += f"0 set draw_game false\n"
         inputs_str += f"0 set speed 100\n"
         inputs_str += f"{start} set draw_game true\n"
         inputs_str += f"{start} set speed 1\n"
@@ -646,7 +659,7 @@ def to_sec(inputs_str: str) -> str:
         if "." in line or line == "":
             return line
         splits = line.split(" ")
-        if "-" in splits[0]:            
+        if "-" in splits[0]:
             press_time, rel_time = splits[0].split("-")
             splits[0] = ms_to_sec(press_time) + "-" + ms_to_sec(rel_time)
         else:
@@ -663,7 +676,7 @@ def to_sec(inputs_str: str) -> str:
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
     print(f'Connecting to {server_name}...')
-    run_client(MainClient(), server_name)
+    run_client(MainClient(), server_name, buffer_size=1000000)
 
 if __name__ == '__main__':
     main()
