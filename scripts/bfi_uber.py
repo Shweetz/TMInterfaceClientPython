@@ -1,15 +1,31 @@
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client
-import sys
-import signal
-import time
 
 import datetime
+import os
 import math
 import shutil
+import signal
+import sys
+import time
 
-res_file = "C:/Users/rmnlm/Documents/TMInterface/Scripts/result.txt"
+"""
+for this script, you need a base run that is not a uber but close to it (uber setup)
+
+then you need to set 
+position_optimized to where you want to go
+min_velocity_for_uber which is the velocity (m/s) you can only reach with a uber
+
+what it does is try to find uber (it thinks it ubered when the car is faster than min_velocity_for_uber)
+when it does, it keeps that as improvement and will then try to get as close as possible to position_optimized
+after X iterations (where X is max_iterations_for_uber), it will restore base run (uber setup) and try again
+
+every improvement will be saved in a new file and you will have a lot of inputs files to check
+there will be uber_XXX.txt (where XXX is the velocity) and closer_YYY (where YYY is the squared distance to position_optimized) 
+"""
+
+res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + "result.txt"
 position_optimized = [600, 68, 693]
 target_cp_number = 1
 min_dist_diff = 0

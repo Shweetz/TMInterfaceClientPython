@@ -23,17 +23,20 @@ from save_load_state import load_state
 rules = []
 
 LOAD_INPUTS_FROM_FILE = ""
-LOAD_REPLAY_FROM_STATE = "state141.bin"
+LOAD_REPLAY_FROM_STATE = "state.bin"
 LOCK_BASE_RUN = False
 
 FILL_INPUTS = True
-start = "34:02.50"
-end   = "34:08.00"
-TIME_LEN = 1000
+start = "44:57.50"
+end   = "45:02.20"
+# start = "58.00"
+# end   = "1:02.50"
+TIME_BEFORE = 0
+TIME_AFTER  = 0
 # start = ms_to_sec(int(sec_to_ms(end)) - 5500)
 
 if FILL_INPUTS:
-    proba = 0.005
+    proba = 0.01
 else:
     proba = 0.2
     rules.append(Rule(Input.STEER, Change.TIMING, proba=proba, start_time=start, end_time=end, diff=50))
@@ -50,14 +53,14 @@ eval = Eval.TIME
 parameter = Optimize.CUSTOM
 
 TIME = end
-TIME_MIN = int(sec_to_ms(TIME)) - TIME_LEN
-TIME_MAX = int(sec_to_ms(TIME))
+TIME_MIN = int(sec_to_ms(TIME)) + TIME_BEFORE
+TIME_MAX = int(sec_to_ms(TIME)) + TIME_AFTER
 
 # eval == Eval.CP:
-CP_NUMBER = 132
+CP_NUMBER = 186
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [451, 120, 870]
+POINT_POS = [480, 115, 720]
 
 # Min diff to consider an improvement worthy
 min_diff = 0.01
@@ -105,6 +108,7 @@ class MainClient(Client):
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
         print(f"Randomizing inputs between {lowest_poss_change} and {highest_poss_change}")
+        iface.execute_command("load result.txt")
         for rule in rules:
             print(rule)
 
@@ -161,39 +165,6 @@ class MainClient(Client):
             
         # print("on_simulation_begin end")
         pass
-        
-    def fill_inputs(self, start_fill=0, end_fill=0):
-        """Fill inputs between start_fill and end_fill included"""
-        if end_fill == 0:
-            end_fill = self.begin_buffer.events_duration
-        
-        # print(f"fill_inputs(self, {start_fill}, {end_fill})")
-        # Find start steering (if start fill_inputs not on a steering change)
-        if LOAD_INPUTS_FROM_FILE:
-            buffer = self.pre_rewind_buffer
-        else:
-            buffer = self.begin_buffer
-
-        curr_steer = 0
-        for event_time in range(start_fill, -10, -10):
-            # print(f"event_time={event_time}")
-            events_at_time = buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
-            if len(events_at_time) > 0:
-                if len(events_at_time) > 1:
-                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
-                curr_steer = events_at_time[-1].analog_value
-                # print(f"start steer={curr_steer}")
-                break
-
-        # Fill inputs
-        for event_time in range(start_fill, end_fill+10, 10):
-            events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
-            if len(events_at_time) > 0:
-                if len(events_at_time) > 1:
-                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
-                curr_steer = events_at_time[-1].analog_value
-            else:
-                self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
         
     def on_simulation_step(self, iface: TMInterface, _time: int):
         # print("on_simulation_step start")
@@ -271,7 +242,7 @@ class MainClient(Client):
             return self.is_earlier(base_run, min_diff)
 
         if parameter == Optimize.DISTANCE:
-            return self.is_closer(base_run, min_diff)
+            return self.is_closer(base_run, min_diff, "xyz")
 
         if parameter == Optimize.VELOCITY:
             return self.is_faster(base_run, min_diff)
@@ -295,23 +266,31 @@ class MainClient(Client):
         # if not abs(self.car.pitch_rad) + abs(self.car.roll_rad) < 1:
         #     return False
         # # # print(self.car.y)
-        if not 000 < self.car.x < 9999:
+        if not 787 < self.car.x < 790:
             return False
-        if not 145 < self.car.y < 9999:
+        if not 209 < self.car.y < 999:
             return False
-        if not 000 < self.car.z < 9999:
+        if not 735 < self.car.z < 999:
             return False
-        # if not self.car.yaw_deg > 70:
+        # if not abs(self.car.pitch_rad) < 0.5:
         #     return False
         # if not self.cp_count >= 85:
         #     return False
 
-        # self.car.custom = abs(car.pitch_deg - 90)
+        # self.car.custom = abs(self.car.pitch_deg - 90)
         # self.car.custom = self.car._time
-        self.car.custom = - self.car.x - self.car.y*2 - self.car.z*0.3
+        # self.car.custom = self.car.x + self.car.vel_x
         # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
-        # self.car.custom = self.car.get_speed("xz")
+        # self.car.custom = self.car.get_speed("xyz")       
         
+        cx = 0
+        cz = 1
+        cspeed = 2
+        x = self.car.x + self.car.vel_x*cspeed
+        z = self.car.z + self.car.vel_z*cspeed
+        self.car.custom = x*cx + z*cz
+        # self.car.custom = - abs(self.car.pitch_deg)
+
         if base_run:
             print(f"Base run custom = {self.car.custom}")
             return True
@@ -350,8 +329,8 @@ class MainClient(Client):
         #     return False
         # if not 63 < self.car.y:
         #     return False
-        if not 102 < self.car.z < 104:
-            return False
+        # if not 102 < self.car.z < 104:
+        #     return False
         # if not self.cp_count >= 73:
         #     return False
             
@@ -360,7 +339,10 @@ class MainClient(Client):
         #     return False
 
         goals = []
-        goals.append(Goal("x", MinMax.MIN, 0))
+        goals.append(Goal("y", MinMax.MAX, 46))
+        goals.append(Goal("x", MinMax.MAX, 496))
+        goals.append(Goal("pitch_rad", MinMax.MAX, -0.5))
+        goals.append(Goal("z", MinMax.MIN, 0))
         goals.append(Goal("_time", MinMax.MIN, 0))
 
         if base_run:
@@ -407,11 +389,11 @@ class MainClient(Client):
         # if not self.car.yaw_deg > 80:
         #     return False
 
-        # if not 000 < self.car.x < 448:
+        # if not 0 < self.car.x < 999:
         #     return False
-        # if not 111 < self.car.y < 999:
+        # if not 241.0 < self.car.y < 9999:
         #     return False
-        # if not 1014 < self.car.z < 1016:
+        # if not 0 < self.car.z < 166:
         #     return False
 
         if base_run:
@@ -429,13 +411,16 @@ class MainClient(Client):
         # else:
         #     car = self.car
 
-        self.car.distance = get_dist_2_points(POINT_POS, self.car.position, axis)
+        if not 0 < self.car.y < 9999:
+            return False
+
+        self.car.distance = math.sqrt(get_dist_2_points(POINT_POS, self.car.position, axis))
         
         if base_run:
-            print(f"Base run distance = {math.sqrt(self.car.distance)} m")
+            print(f"Base run distance = {self.car.distance} m")
             return True
         elif self.car.distance < self.best_car.distance - min_diff:
-            print(f"Improved distance = {math.sqrt(self.car.distance)} m")
+            print(f"Improved distance = {self.car.distance} m")
             return True
         
         return False
@@ -445,6 +430,9 @@ class MainClient(Client):
         #     car = self.best_car
         # else:
         #     car = self.car
+
+        if not 63 < self.car.y < 9999:
+            return False
 
         self.car.velocity = min(self.car.speed_kmh, 1000)
 
@@ -553,6 +541,58 @@ class MainClient(Client):
 
                 if Input.STEER.name == self.begin_buffer.control_names[event.name_index]:
                     last_steer = event.analog_value
+
+    def fill_inputs(self, start_fill=0, end_fill=0):
+        """Fill inputs between start_fill and end_fill included"""
+        if end_fill == 0:
+            end_fill = self.begin_buffer.events_duration
+        
+        # print(f"fill_inputs(self, {start_fill}, {end_fill})")
+        # Find start steering (if start fill_inputs not on a steering change)
+        if LOAD_INPUTS_FROM_FILE:
+            buffer = self.pre_rewind_buffer
+        else:
+            buffer = self.begin_buffer
+
+        curr_steer = 0
+        for event_time in range(start_fill, -10, -10):
+            # print(f"event_time={event_time}")
+            events_at_time = buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+            if len(events_at_time) > 0:
+                if len(events_at_time) > 1:
+                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
+                curr_steer = events_at_time[-1].analog_value
+                # print(f"start steer={curr_steer}")
+                break
+
+        # Fill inputs
+        for event_time in range(start_fill, end_fill+10, 10):
+            events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+            if len(events_at_time) > 0:
+                if len(events_at_time) > 1:
+                    print(f"dirty inputs at {event_time}: len={len(events_at_time)}")
+                curr_steer = events_at_time[-1].analog_value
+            else:
+                self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
+
+    def unfill_inputs(self, buffer: EventBufferData):
+        # return buffer
+        buffer.sort()
+
+        unfilled_buffer = EventBufferData(buffer.events_duration)
+        unfilled_buffer.control_names = buffer.control_names
+
+        last_steer = None
+        for event in buffer.find():
+            if Input.STEER.value == buffer.control_names[event.name_index]:
+                if event.analog_value == last_steer:
+                    continue
+                else:
+                    last_steer = event.analog_value
+
+            unfilled_buffer.events.append(event)
+
+        return unfilled_buffer
         
     def save_result(self, time_found="", file_name="result.txt"):
         if time_found == "":
@@ -563,10 +603,12 @@ class MainClient(Client):
         # if LOAD_INPUTS_FROM_FILE:
         if self.pre_rewind_buffer:
             # inputs before inputs_min_time
-            inputs_str += self.pre_rewind_buffer.to_commands_str()
+            # unfilled_buffer = self.unfill_inputs(self.pre_rewind_buffer)
+            inputs_str += self.unfill_inputs(self.pre_rewind_buffer).to_commands_str()
             inputs_str += "\n"
 
-        inputs_str += self.current_buffer.to_commands_str()
+        # unfilled_buffer = self.unfill_inputs(self.current_buffer)
+        inputs_str += self.unfill_inputs(self.current_buffer).to_commands_str()
         
         # Convert inputs
         if not SYNTAX_MS:
@@ -576,11 +618,14 @@ class MainClient(Client):
         inputs_str = f"# Time: {time_found}, iterations: {self.nb_iterations}\n" + inputs_str
         
         # Footer
+        inputs_str += "\n"
         inputs_str += f"0 load_state {LOAD_REPLAY_FROM_STATE}\n"
         # inputs_str += f"0 set draw_game false\n"
         inputs_str += f"0 set speed 100\n"
-        inputs_str += f"{start} set draw_game true\n"
-        inputs_str += f"{start} set speed 1\n"
+        # inputs_str += f"{start} set draw_game true\n"
+        inputs_str += f"{ms_to_sec(int(sec_to_ms(end)) - 2500)} set speed 1\n"
+        inputs_str += f"# 47.0 set cmd_base_time 100\n"
+
 
         # Write inputs in file
         res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
@@ -676,7 +721,8 @@ def to_sec(inputs_str: str) -> str:
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
     print(f'Connecting to {server_name}...')
-    run_client(MainClient(), server_name, buffer_size=1000000)
+    run_client(MainClient(), server_name)
+    # run_client(MainClient(), server_name, buffer_size=1000000)
 
 if __name__ == '__main__':
     main()
