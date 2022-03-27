@@ -69,12 +69,12 @@ class Car():
         self.x, self.y, self.z = state.position
         self.yaw_rad, self.pitch_rad, self.roll_rad = state.yaw_pitch_roll
         self.vel_x, self.vel_y, self.vel_z = state.velocity
-        self.speed_mph = numpy.linalg.norm(state.velocity) # if > 1000/3.6?
+        self.speed_mps = numpy.linalg.norm(state.velocity) # if > 1000/3.6?
 
         self.yaw_deg   = self.yaw_rad   * 180 / math.pi
         self.pitch_deg = self.pitch_rad * 180 / math.pi
         self.roll_deg  = self.roll_rad  * 180 / math.pi
-        self.speed_kmh = self.speed_mph * 3.6 # if > 1000?
+        self.speed_kmh = self.speed_mps * 3.6 # if > 1000?
 
         self.stunts_score = int.from_bytes(state.player_info[724:724+4], byteorder='little')
         if self.stunts_score > 1000000:
