@@ -1,25 +1,18 @@
-# Every line in lines_info shall be formatted like this:
-# filename.txt [start_time] end_time
-# Note: start_time is optional, if undefined it will be the previous press enter
-
-t.a.l.o.s_kmailcolins(2845878).txt 34.11
-t.a.l.o.s_kmailcolins(2845878).txt 9:22.19
-t.a.l.o.s_kmailcolins(2845878).txt 23:23.88
-t.a.l.o.s_kmailcolins(2845878).txt 34:0.53
-t.a.l.o.s_kmailcolins(2845878).txt 38:50.49
-t.a.l.o.s_kmailcolins(2845878).txt 49:4.40
-t.a.l.o.s_kmailcolins(2845878).txt 1:4:43.67
-t.a.l.o.s_kmailcolins(2845878).txt 1:37:22.56
-t.a.l.o.s_kmailcolins(2845878).txt 2:23:13.84
-t.a.l.o.s_kmailcolins(2845878).txt 2:25:55.36
-t.a.l.o.s_kmailcolins(2845878).txt 2:29:11.02
-t.a.l.o.s_kmailcolins(2845878).txt 2:32:25.85
-t.a.l.o.s_kmailcolins(2845878).txt 2:45:15.62
-t.a.l.o.s_kmailcolins(2845878).txt 3:5:28.28
-t.a.l.o.s_kmailcolins(2845878).txt 3:11:15.83
-t.a.l.o.s_kmailcolins(2845878).txt 3:23:22.14
-t.a.l.o.s_kmailcolins(2845878).txt 3:25:23.71
-t.a.l.o.s_kmailcolins(2845878).txt 4:34:18.19
-t.a.l.o.s_kmailcolins(2845878).txt 4:38:33.23
-t.a.l.o.s_kmailcolins(2845878).txt 4:41:6.47
-t.a.l.o.s_kmailcolins(2845878).txt 4:44:58.78
+CP_2_TALOS.txt 0 47.19
+cp2.txt
+cp3.txt
+cp4.txt
+talos_cp5.txt
+cp6.txt
+cp7.txt
+TALOS_CP_8.txt
+TALOS_CP_9.txt
+talos_cp10.txt
+cp11-12.txt
+cp13.txt
+cp14.txt
+talos_cp15.txt
+cp16.txt
+cp17.txt
+cp18_2.txt
+talos_cp19-20.txt
