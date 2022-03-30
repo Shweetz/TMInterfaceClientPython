@@ -1,23 +1,42 @@
+from dataclasses import dataclass
 import math
 import operator
 import os
+import sys
 import time
 
 from tminterface.commandlist import CommandList, InputCommand, InputType, BOT_INPUT_TYPES
 
 from SUtil import sec_to_ms
 
+@dataclass
+class Split:
+    filename: str
+    selected_time: str
+
 """
 HOW TO USE
 - Place the inputs as txt files in the same directory as this script
-- Fill "inputs_assemble_info.txt" which is also in this directory. 1 line per respawn 
-    Line formatting possibilities:
-    * filename.txt start_time end_time
-    * filename.txt end_time
-    * filename.txt
-    If only end_time is defined, start_time will be the previous "press enter"
-    If no time is defined, the txt file must contain 2 "press enter", those will be start_time and end_time
+- Add Splits to route: the route is the final replay desired route, every split is some continuous part of inputs
+- Use "selected_time" to select when to start and stop grabbing inputs from the text file
+    * selected_time="cp_times"   will make 1 split/CP reached
+        For this, add in the inputs file the TMI logs with CP timings of the selected CPs
+        To get TMI logs with CP crossed, check Settings > Misc > Log Information About Simulation, then play or validate the run 
+        Then use "copy_logs" to copy the info, paste it in the file and clean the logs by removing everything before CP1
+    * selected_time="full"       will start at 0 and end at the end of the replay file
+    * selected_time="2.20-15.15" will start at 2.20 and end at 15.15
+    * selected_time="15.15"      will end at 15.15 and start at whichever is the previous respawn
+    * selected_time="0"          will start at 0 and end at the next respawn (this only happens for value "0")
+    * selected_time=""           will depend on how many "press enter" are in the inputs file
+        + 1 "press enter" will grab from the "press enter" to the end
+        + 2 "press enter" will grab what is between the 2
+        + any other number will print an error
 """
+
+"inputs_assemble_info.txt"
+route = []
+route.append(Split(filename="inputs.txt", selected_time="cp_times"))
+
 class RespawnState:
     """Stores the time and inputs pressed during a respawn"""
     # filename = ""
@@ -35,19 +54,18 @@ class RespawnState:
         for i in range(InputType.UNKNOWN):
             self.inputs[i] = 0
 
-    def copy(self):
-        respawn_state = RespawnState()
-        respawn_state.timestamp = self.timestamp
-        for i in range(InputType.UNKNOWN):
-            respawn_state.inputs[i] = self.inputs[i]
-        return respawn_state
+    # def copy(self):
+    #     respawn_state = RespawnState()
+    #     respawn_state.timestamp = self.timestamp
+    #     for i in range(InputType.UNKNOWN):
+    #         respawn_state.inputs[i] = self.inputs[i]
+    #     return respawn_state
 
     def update(self, input_type: InputType, state: int) -> None:
         # print(input_type.value)
         # print(state)
         # time.sleep(1)
         self.inputs[input_type.value] = state
-
 
 def extract_sorted_timed_commands(filename: str) -> CommandList:
     with open(filename, "r") as f:
@@ -62,46 +80,119 @@ def extract_sorted_timed_commands(filename: str) -> CommandList:
 
     return commands
 
-def get_respawn_state(commands: list[InputCommand], timestamp: int, respawn_state) -> RespawnState:
-    # respawn_state = RespawnState()
+def find_end_times_cp(filename: str) -> list[int]:   
+    end_times_cp = []
+
+    with open(filename, "r") as f:
+        lines = f.readlines()
+    
+    for line in lines:
+        if "[Simulation] Checkpoint" in line:
+            splits = line.split(" ")
+            end_time = splits[-2][:-1].rstrip()
+            end_times_cp.append(end_time)
+            print(f"{end_time=}")
+            # cp_number = splits[-1].split("/")[0]
+            
+        if "[Simulation] Race" in line:
+            splits = line.split(" ")
+            end_time = splits[-1].rstrip()
+            end_times_cp.append(end_time)
+            print(f"{end_time=}")
+
+    return end_times_cp
+
+def find_start_end_time(selected_time: str, commands: CommandList) -> list[int, int]:
+    
+    if selected_time == "full":
+        start_time = 0
+        end_time   = commands[-1].timestamp
+
+    elif "-" in selected_time:
+        start_time = int(sec_to_ms(selected_time.split(".")[0]))
+        end_time   = int(sec_to_ms(selected_time.split(".")[1]))
+
+    elif selected_time == "0":
+        start_time = 0
+        end_time   = 0 # TODO first press enter
+
+    elif selected_time:
+        end_time   = int(sec_to_ms(selected_time))
+
+        # find previous press enter before end_time
+        end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
+        start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
+        start_time = commands[start_index].timestamp
+
+    else:
+        # find end_time first
+        nb_press_enter = 0
+        for command in commands:
+            # count nb press enter
+            if command.input_type == InputType.RESPAWN and command.state == 1:
+                nb_press_enter += 1
+                # print(f"press enter found at {command.timestamp}")
+        
+        if nb_press_enter == 1:
+            # last command
+            end_time = commands[-1].timestamp
+            print(f"WARNING only 1 press enter found, cutting on last InputCommand")
+
+        elif nb_press_enter == 2:
+            # last press enter
+            end_index = find_previous_index(commands, len(commands), InputType.RESPAWN, 1)
+            end_time = commands[end_index].timestamp
+
+        else:
+            print(f"ERROR {nb_press_enter=}")
+            sys.exit()
+
+        #find previous press enter before end_time
+        end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
+        start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
+        start_time = commands[start_index].timestamp
+
+    return start_time, end_time
+
+def create_state(timestamp: int, commands: list[InputCommand]) -> RespawnState:
+    state = RespawnState()
+    state.timestamp = timestamp
 
     for command in commands:
         # For every command in the file, update the inputs pressed at the moment
         if (command.timestamp < timestamp):
-            respawn_state.update(command.input_type, command.state)
+            state.update(command.input_type, command.state)
+            # print(f"{command.input_type=}, {command.state=}")
         else:
             # Save the state inputs when a respawn is performed
-            print(f"Adding respawn_state at {command.timestamp}, press up = {respawn_state.inputs[0]}")
+            # print(f"Adding new_respawn_state at {command.timestamp}, steer = {new_respawn_state.inputs[6]}")
             break
     
-    return respawn_state
+    return state
 
-# def get_respawn_states(commands: CommandList) -> int:
-#     respawn_states = []
-#     # Add a RespawnState at time 0 with no inputs
-#     respawn_states.append(RespawnState())
+def compute_commands_transition(new_respawn_state, last_respawn_state):
+    commands = []
+    # new_respawn_state = get_respawn_state(commands, start_time, new_respawn_state)
 
-#     respawn_states.append(RespawnState())
-#     for command in commands:
-#         # For every command in the file, update the inputs pressed at the moment
-#         respawn_states[-1].update(command.input_type, command.state)
-#         # if (command.input_type == InputType.RESPAWN and command.state == 1):
-#             # Save the state inputs when a respawn is performed
-#         respawn_states[-1].timestamp = command.timestamp
-#         print(f"Adding respawn_state at {respawn_states[-1].timestamp}, press up = {respawn_states[-1].inputs[0]}")
-#         respawn_states.append(RespawnState())
-#             # print(f"Adding respawn_state at {respawn_state.timestamp}, press up = {respawn_state.inputs[0]}")
-#             # respawn_state = RespawnState()
-#             # print(f"Adding respawn_state at {command.timestamp}")
-            
-#         # elif True:
-#         #     # Save the state inputs when a CP is crossed
-#             # respawn_states.append(respawn_state)
-#             # respawn_states[-1].update(command.input_type, command.state)
-#             # respawn_state = RespawnState()
-#             # print(f"Adding respawn_state at {command.timestamp}")
+    timestamp = new_respawn_state.timestamp
 
-#     return respawn_states
+    # print(f"{last_respawn_state.inputs[0]=}")
+    # print(f"{start_time} {last_respawn_state.inputs[0]} {new_respawn_state.inputs[0]}")
+    for i in range(InputType.UNKNOWN):
+        # print("")
+        # print(f"{start_time} {i} {last_respawn_state.inputs[i]} {new_respawn_state.inputs[i]}")
+        # print("")
+
+        if new_respawn_state.inputs[i] != last_respawn_state.inputs[i]:
+            inputs_type = InputType(i)
+            state = new_respawn_state.inputs[i]
+            # command = 
+            commands.append(InputCommand(timestamp, inputs_type, state))
+            # print("")
+            # print(f"{start_time} {i} {last_respawn_state.inputs[i]} {new_respawn_state.inputs[i]}")
+            # print("")
+
+    return commands
 
 def find_command_index(commands: CommandList, end_time: int, input_type: InputType, state: int) -> int:
     """
@@ -188,8 +279,8 @@ def to_script(commands: list) -> str:
     return result_string
 
 def main():
-    with open("inputs_assemble_info.txt", "r") as f:
-        lines_info = f.readlines()
+    # with open("inputs_assemble_info.txt", "r") as f:
+    #     lines_info = f.readlines()
 
     assembled_file = "inputs_assemble.txt"
     # assembled_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + "work2.txt"
@@ -200,140 +291,72 @@ def main():
     # last_respawn_state.timestamp = 5
     # print(new_respawn_state.timestamp)
 
-    # get_cp_states()
+    # Remove fails (will force respawn every CP)
+    if route[0].selected_time == "cp_times":
+        # add remove_fails file content in the inputs file
+        # read route[0].remove_fails to find all end_time (look for "Checkpoint" and "Race" lines)
+        list_end_times = find_end_times_cp(route[0].filename)
+        # add splits with filename=route[0].filename and selected_time=end_time
+        for end_time in list_end_times:
+            route.append(Split(filename=route[0].filename, selected_time=end_time))
+        # remove this split
+        route.pop(0)
 
     # Every line in lines_info shall be formatted like this:
     # filename.txt [start_time] end_time
     # Note: start_time is optional, if undefined it will be the previous press enter
-    for line in lines_info:
+    for split in route:
         # print("")
-        line = line.replace("\n", "")
-        if not line or line.startswith("#"):
+        # line = line.replace("\n", "")
+        # if not line or line.startswith("#"):
+        #     continue
+        
+        # splits = line.split(" ")
+        # filename = splits[0]
+        # start_time = None
+        # end_time = None
+
+        # if len(splits) == 2:
+        #     end_time = int(sec_to_ms(splits[1]))
+
+        # elif len(splits) == 3:
+        #     start_time = int(sec_to_ms(splits[1]))
+        #     end_time = int(sec_to_ms(splits[2]))
+        #     # print(f"{start_time=} {end_time=}")
+        # elif len(splits) > 3:
+        #     print(f"{len(splits)=}: {line}")
+        #     continue
+
+        if not split.filename:
+            print(f"ERROR: no filename specified")
+            continue
+        if not split.selected_time:
+            print(f"ERROR: no selected_time specified")
+            continue
+        if not os.path.isfile(split.filename):
+            print(f"ERROR: {split.filename} does not exist")
             continue
         
-        splits = line.split(" ")
-        filename = splits[0]
-        start_time = None
-        end_time = None
+        # Extract commands
+        commands = extract_sorted_timed_commands(split.filename)
 
-        if len(splits) == 2:
-            end_time = int(sec_to_ms(splits[1]))
-
-        elif len(splits) == 3:
-            start_time = int(sec_to_ms(splits[1]))
-            end_time = int(sec_to_ms(splits[2]))
-            # print(f"{start_time=} {end_time=}")
-        elif len(splits) > 3:
-            print(f"{len(splits)=}: {line}")
-            continue
-
-        # if filename not in inputs_files_read:
-        if not os.path.isfile(filename):
-            print(f"{filename} does not exist")
-            continue
-
-            # read and store pressed buttons + time every respawn
-            # respawn_states = get_respawn_states(commands)
-
-            # inputs_files_read.append(filename)
-        
-        commands = extract_sorted_timed_commands(filename)
-
-        # Find end_time
-        if not end_time:
-            # count nb press enter
-            nb_press_enter = 0
-            for command in commands:
-                if command.input_type == InputType.RESPAWN and command.state == 1:
-                    nb_press_enter += 1
-                    # print(f"press enter found at {command.timestamp}")
-            
-            if nb_press_enter == 1:
-                # last command
-                end_time = commands[-1].timestamp
-                print(f"WARNING only 1 press enter found, cutting on last InputCommand")
-
-            elif nb_press_enter == 2:
-                # last press enter
-                end_index = find_previous_index(commands, len(commands), InputType.RESPAWN, 1)
-                end_time = commands[end_index].timestamp
-
-            else:
-                print(f"ERROR {nb_press_enter=}")
-                continue
-
-        # Find start_time
-        if start_time is None:
-            #find previous press enter before end_time
-            end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
-            start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
-            start_time = commands[start_index].timestamp
-        
-        print(f"{filename} between {start_time} and {end_time}")
+        # Find start_time and end_time
+        start_time, end_time = find_start_end_time(split.selected_time, commands)
+        print(f"{split.filename} between {start_time} and {end_time}")
 
         # Transition state: replace inputs during last respawn with inputs new respawn
-        commands_inputs_difference = []
-        # for i, respawn_state in enumerate(respawn_states):
-        #     # Exact time
-        #     if respawn_state.timestamp == start_time:
-        #         new_respawn_state = respawn_state
-        #         break
-        #     # Too far because no respawn state on the tick CP was crossed
-        #     if respawn_state.timestamp > start_time:
-        #         new_respawn_state = respawn_states[i-1]
-        #         break
-        
-        # print(f"{last_respawn_state.inputs[0]=}")
-        # new_respawn_state = get_respawn_state(commands, start_time, new_respawn_state)
-        
-        new_respawn_state = RespawnState()
-        
-        for command in commands:
-            # For every command in the file, update the inputs pressed at the moment
-            if (command.timestamp < start_time):
-                new_respawn_state.update(command.input_type, command.state)
-                # print(f"{command.input_type=}, {command.state=}")
-            else:
-                # Save the state inputs when a respawn is performed
-                # print(f"Adding new_respawn_state at {command.timestamp}, steer = {new_respawn_state.inputs[6]}")
-                break
-        # print(f"{last_respawn_state.inputs[0]=}")
-        # print(f"{start_time} {last_respawn_state.inputs[0]} {new_respawn_state.inputs[0]}")
-        for i in range(InputType.UNKNOWN):
-            # print("")
-            # print(f"{start_time} {i} {last_respawn_state.inputs[i]} {new_respawn_state.inputs[i]}")
-            # print("")
-            if new_respawn_state.inputs[i] != last_respawn_state.inputs[i]:
-                timestamp = start_time
-                inputs_type = InputType(i)
-                state = new_respawn_state.inputs[i]
-                # command = 
-                commands_inputs_difference.append(InputCommand(timestamp, inputs_type, state))
-                # print("")
-                # print(f"{start_time} {i} {last_respawn_state.inputs[i]} {new_respawn_state.inputs[i]}")
-                # print("")
-        
-        # last_respawn_state = get_respawn_state(commands, end_time, last_respawn_state)
-        for command in commands:
-            # For every command in the file, update the inputs pressed at the moment
-            if (command.timestamp < end_time):
-                last_respawn_state.update(command.input_type, command.state)
-            else:
-                # Save the state inputs when a respawn is performed
-                # print(f"Adding last_respawn_state at {command.timestamp}, steer = {last_respawn_state.inputs[6]}")
-                break
-
-        # print(f"Making commands")
+        new_respawn_state = create_state(start_time, commands)
+        commands_transition = compute_commands_transition(new_respawn_state, last_respawn_state)
+        last_respawn_state = create_state(end_time, commands)
         
         # Get commands between start_time and end_time
-        commands_between_start_and_end = [command for command in commands if start_time <= command.timestamp < end_time]
+        commands_split = [command for command in commands if start_time <= command.timestamp < end_time]
 
         # Combine transition state + new commands
-        new_commands = commands_inputs_difference
-        new_commands.extend(commands_between_start_and_end)
+        new_commands = commands_transition + commands_split
 
         # Delay commands
-        delay = last_end_time - new_commands[0].timestamp
+        delay = last_end_time - start_time
         # print(delay)
         # print(len(new_commands))
         # print(new_commands[0].timestamp)
@@ -341,7 +364,7 @@ def main():
             new_commands[i].timestamp += delay
 
         # print(new_commands[0].timestamp)
-        last_end_time = end_time + delay
+        last_end_time = last_end_time - start_time + end_time
 
         # print inputs
         assembled_inputs += to_script(new_commands)
