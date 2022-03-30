@@ -80,7 +80,8 @@ def extract_sorted_timed_commands(filename: str) -> CommandList:
 
     return commands
 
-def find_end_times_cp(filename: str) -> list[int]:   
+def find_end_times_cp(filename: str) -> list[int]: 
+    """Find CP times from the inputs text file containing TMI's logs"""  
     end_times_cp = []
 
     with open(filename, "r") as f:
