@@ -61,7 +61,7 @@ class Replay:
             quit()
 
         # print(len(ghost.cp_times))
-        # print(ghost.cp_times)
+        print(f"{len(ghost.cp_times)} CPs in {filename}: {ghost.cp_times}")
 
         # Check car position after every CP to guess where rings are and remove them
         # does not work for exported for validation replays
@@ -85,8 +85,17 @@ class Replay:
 
         inputs_str = ""
         for input in inputs_list:
-            inputs_str += input + "\n"
+            inputs_str += input
         
+        # Write inputs to text file
+        if filename.lower().endswith(".replay.gbx"):
+            filename_inputs = filename[:-11] + ".txt"
+        else:
+            filename_inputs = filename + ".txt"
+
+        with open(filename_inputs, "w") as f:
+            f.write(inputs_str)
+
         return inputs_str
         
     def extract_sorted_commands(self, inputs_str: str) -> CommandList:
@@ -174,7 +183,7 @@ def find_command_index(commands: CommandList, end_time: int, input_type: InputTy
             index_max = index - 1
 
         if index_min > index_max:
-            print(f"find_command_index: WARNING No command found at {end_time=} (can be because non-instant respawn)")
+            # print(f"find_command_index: No command found at {end_time=} (can be because non-instant respawn)")
             return index_min
     
     # Find the enter/respawn command at this time
@@ -188,15 +197,18 @@ def find_command_index(commands: CommandList, end_time: int, input_type: InputTy
         while command.timestamp == end_time and command.input_type != input_type and index < len(commands) - 1:
             index += 1
             command = commands[index]
+
+        if command.timestamp > end_time:
+            # print(f"find_command_index: No command found at {end_time=} (can be because non-instant respawn)")
+            return index
     
-    # Index max means grab inputs until the start
+    # Index max means grab inputs until the end
     if index == len(commands) - 1:
         return index
 
     # Final check
     if command.timestamp != end_time or command.input_type != input_type:
-        print(f"find_command_index: ERROR {command.timestamp=} != {end_time=} or {command.input_type=} != {input_type=}")
-        raise
+        print(f"ERROR in find_command_index: {command.timestamp=} != {end_time=} or {command.input_type=} != {input_type=}")
     
     return index
 
@@ -219,8 +231,7 @@ def find_previous_index(commands: CommandList, end_index: int, input_type: Input
 
     # Final check (index != 0)
     if command.input_type != input_type:
-        print(f"find_previous_index ERROR: {command.input_type=} != {input_type=}")
-        raise
+        print(f"ERROR in find_previous_index: {command.input_type=} != {input_type=}")
     
     return index
 
@@ -249,7 +260,7 @@ def main():
             # +1 because i represents end_cp and not start_cp
             for i in range(split_start_cp + 1, split_end_cp + 1):
                 if i in split.ignore_cp:
-                    # Don't respawn on rings for example
+                    # Don't respawn = don't create a split for the CP
                     continue
 
                 route_expanded.append(Split(filename=split.filename, end_cp=i))
@@ -270,7 +281,7 @@ def main():
             continue
         
         print("")
-        print(f"Split: {split.filename} with CPs {split.start_cp}-{split.end_cp}")
+        print(f"{split.filename} with CPs {split.start_cp}-{split.end_cp}")
         
         replay = replays[split.filename]
 
@@ -306,4 +317,10 @@ def main():
     print(f"Wrote assembled inputs in {assembled_file}")
 
 if __name__ == "__main__":
+    # Change current directory from executing directory to script directory
+    if os.path.dirname(__file__) != os.getcwd():
+        print(f"Changing current directory from executing directory to script directory")
+        print(f"{os.getcwd()} => {os.path.dirname(__file__)}")
+        os.chdir(os.path.dirname(__file__))
+
     main()
