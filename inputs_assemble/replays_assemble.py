@@ -9,17 +9,22 @@ from tminterface.commandlist import CommandList, InputCommand, InputType, BOT_IN
 import pygbx
 import generate_input_file
 
+from SUtil import ms_to_sec
+
 @dataclass
 class Split:
     filename: str
     start_cp: int = None
     end_cp: int = None
-    remove_fails: bool = False
+    remove_fails: bool = True
     ignore_cp: list = field(default_factory=list)
+    
+    # def update(self, replay: Replay) -> None:
+    #     pass
 
 """
 HOW TO USE
-- pip install pygbx
+- pip install tminterface
 - In the directory of the script, you need generate_input_file.py and the relevant replays
 - Add ordered Splits to route: the route is the final replay desired route, every split is some continuous part of inputs
 - Use "end_cp" to select the CP where to stop grabbing inputs from
@@ -28,10 +33,12 @@ HOW TO USE
 - Use "ignore_cp" to NOT respawn on some CP (rings or CPs that the replay didn't respawn on)
 """
 
+SAME_RESPAWN_REPLAYS = True
+
 route = []
-# route.append(Split(filename="Ţ.A.L.O.S_5days(07'34''85).Replay.Gbx"))
-route.append(Split(filename="T.A.L.O.S_KMAIL COLINS(284'58''78).Replay.Gbx", remove_fails=True, ignore_cp=[12, 20]))
-# route.append(Split(filename="ASUS2_T.A.L.O.S.Replay.gbx", start_cp=0, end_cp=0))
+# route.append(Split(filename="T.A.L.O.S_KMAIL COLINS(284'58''78).Replay.Gbx", remove_fails=True, ignore_cp=[]))
+# route.append(Split(filename="ASUS2_T.A.L.O.S.Replay.gbx"                   , remove_fails=True, ignore_cp=[]))
+
 
 class RespawnState:
     """Stores the time and inputs pressed during a respawn"""
@@ -61,7 +68,7 @@ class Replay:
             quit()
 
         # print(len(ghost.cp_times))
-        print(f"{len(ghost.cp_times)} CPs in {filename}: {ghost.cp_times}")
+        print(f"{len(ghost.cp_times)} CPs: {ghost.cp_times} for {filename}")
 
         # Check car position after every CP to guess where rings are and remove them
         # does not work for exported for validation replays
@@ -105,6 +112,7 @@ class Replay:
         commands.sort(key=operator.attrgetter("timestamp"))
 
         return commands
+
 
 def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], commands: CommandList) -> list[int, int]:
     """Find start and end times from which to copy inputs from the replay (before delaying them)"""
@@ -245,10 +253,26 @@ def to_script(commands: list) -> str:
 def main():
     assembled_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + "inputs_assemble.txt"
 
+    # If no route defined, add all replays in the directory with default parameters
+    if not route:
+        for file in os.listdir("."):
+            if file.lower().endswith(".replay.gbx"):
+                route.append(Split(filename=file))
+
     # First pass through route: grab info from replays and expand route to remove fails if needed
+    print("")
+    print("Reading replay(s)...")
     replays = {}
     route_expanded = []
     for split in route:
+        if not split.filename:
+            print(f"ERROR: no filename specified")
+            continue
+        if not os.path.isfile(split.filename):
+            print(f"ERROR: {split.filename} does not exist")
+            continue
+
+        # Read and store replay info
         if split.filename not in replays:
             replays[split.filename] = Replay(split.filename)
 
@@ -262,50 +286,87 @@ def main():
                 if i in split.ignore_cp:
                     # Don't respawn = don't create a split for the CP
                     continue
-
-                route_expanded.append(Split(filename=split.filename, end_cp=i))
+                
+                subsplit = Split(filename=split.filename, end_cp=i)
+                # subsplit.update(replay)
+                route_expanded.append(subsplit)
 
         else:
+            # split.update(replay)
             route_expanded.append(split)
 
-    # Second pass through route: execute the splits
-    last_respawn_state = RespawnState()
-    last_end_time = 0
-    assembled_inputs = ""
+    # Second pass through route: find out each split time
+    print("")
+    print("Checking split times...")
     for split in route_expanded:
-        if not split.filename:
-            print(f"ERROR: no filename specified")
-            continue
-        if not os.path.isfile(split.filename):
-            print(f"ERROR: {split.filename} does not exist")
-            continue
-        
-        print("")
-        print(f"{split.filename} with CPs {split.start_cp}-{split.end_cp}")
-        
         replay = replays[split.filename]
 
         # Find start_time and end_time
-        start_time, end_time = find_start_end_time(split.start_cp, split.end_cp, replay.cp_times, replay.commands)
-        print(f"{split.filename} between {start_time} and {end_time}")
+        split.start_time, split.end_time = find_start_end_time(split.start_cp, split.end_cp, replay.cp_times, replay.commands)
+        split.duration = split.end_time - split.start_time
+
+        # Print split info
+        if split.start_cp is None:
+            cp_str = split.end_cp
+        else:
+            cp_str = str(split.start_cp) + "-" + str(split.end_cp)
+
+        print(f"{split.filename} with CP {cp_str}, time={ms_to_sec(split.duration)}")
+
+    # Second pass through route: find out each split time
+    if SAME_RESPAWN_REPLAYS and len(route) > 1:
+        print("")
+        print("Finding fastest splits...")
+        nb_cp_total = route_expanded[-1].end_cp
+        route_timed = []
+        for nb_cp in range(1, nb_cp_total + 1):
+            best_split = None
+            for split in route_expanded:
+                if split.end_cp == nb_cp:            
+                    if best_split is None or split.duration < best_split.duration:
+                        best_split = split
+            
+            if best_split is None:
+                continue
+
+            route_timed.append(best_split)
+
+            # Print best_split info
+            if best_split.start_cp is None:
+                cp_str = best_split.end_cp
+            else:
+                cp_str = str(best_split.start_cp) + "-" + str(best_split.end_cp)
+            print(f"{best_split.filename} with CP {cp_str}, time={ms_to_sec(best_split.duration)}")
+
+    else:
+        route_timed = route_expanded
+
+    # Third pass through route: execute the splits
+    print("")
+    print("Assembling splits...")
+    last_respawn_state = RespawnState()
+    last_end_time = 0
+    assembled_inputs = ""
+    for split in route_timed:
+        replay = replays[split.filename]
 
         # Transition state: replace inputs during last respawn with inputs new respawn
-        new_respawn_state = create_state(start_time, replay.commands)
+        new_respawn_state = create_state(split.start_time, replay.commands)
         commands_transition = compute_commands_transition(new_respawn_state, last_respawn_state)
-        last_respawn_state = create_state(end_time, replay.commands)
+        last_respawn_state = create_state(split.end_time, replay.commands)
         
         # Get commands between start_time and end_time
-        commands_split = [command for command in replay.commands if start_time <= command.timestamp < end_time]
+        commands_split = [command for command in replay.commands if split.start_time <= command.timestamp < split.end_time]
 
         # Combine transition state + new commands
         new_commands = commands_transition + commands_split
 
         # Delay commands
-        delay = last_end_time - start_time
+        delay = last_end_time - split.start_time
         for i in range(len(new_commands)):
             new_commands[i].timestamp += delay
 
-        last_end_time = last_end_time - start_time + end_time
+        last_end_time = last_end_time - split.start_time + split.end_time
 
         # Print inputs
         assembled_inputs += to_script(new_commands)
@@ -313,8 +374,7 @@ def main():
     with open(assembled_file, "w") as f:
         f.write(assembled_inputs)
 
-    print("")
-    print(f"Wrote assembled inputs in {assembled_file}")
+    print(f"Total time = {ms_to_sec(last_end_time)} for the assembled inputs written in {assembled_file}")
 
 if __name__ == "__main__":
     # Change current directory from executing directory to script directory
