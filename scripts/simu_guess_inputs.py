@@ -1,5 +1,6 @@
 
 from copy import deepcopy
+import math
 import os
 import sys
 from tminterface.eventbuffer import EventBufferData
@@ -18,8 +19,10 @@ RIGHT = BINARY_RIGHT_NAME
 DOWN = BINARY_BRAKE_NAME
 UP = BINARY_ACCELERATE_NAME
 
-REPLAY_NAME = "2022-04-15-00-19-21_A01-Race_6.43.Replay.Gbx"
+REPLAY_NAME = "A01-Race_jan123405(00'23''88)YOOOOOOOO.Replay.Gbx"
 INPUTS_NAME = "guessed_inputs.txt"
+CLEAR_INPUTS = True
+NB_TICKS = 11
 
 # class State():
 #     state = None
@@ -80,6 +83,10 @@ class MainClient(Client):
         self.current_buffer = EventBufferData(state.events_duration)
         self.current_buffer.control_names = state.control_names
         # print(self.current_buffer.control_names)
+
+        if CLEAR_INPUTS:
+            # Empty inputs file to not use previously found ones
+            open(os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + INPUTS_NAME, "w").close()
         self.load_inputs_from_file(INPUTS_NAME)
         iface.set_event_buffer(self.current_buffer)
 
@@ -90,8 +97,22 @@ class MainClient(Client):
         self.race_time = _time
 
         state = iface.get_simulation_state()
-        if 0 <= self.race_time < 2100:
-            if self.race_time % 100 == 0:
+        if 0 <= self.race_time < 23800:
+            # % 100 == 0 => is_equal
+            # % 100 == 80 => start guess inputs (pos)
+            # % 100 == 70 => stop guess inputs (pos)
+            # % 100 == 70 => self.state_min_change
+            if self.race_time == 0:
+                self.state_min_change = state
+                self.current_state = state
+                self.event_min_change = self.deep_copy(self.current_buffer)
+                
+            if self.race_time % 100 == 80:
+                if not self.current_state:
+                    self.current_state = state
+
+            if self.race_time % 100 == 0 and self.state_min_change.time - 2610 + 100 <= self.race_time:
+                # print(self.state_min_change.time - 2510)
                 index = int(self.race_time/100)
                 equal = self.is_equal(state, self.ghost.records[index])
                 # print(f"{equal} {_time} {state.position[0]} {self.ghost.records[index].position[0]}")
@@ -100,10 +121,10 @@ class MainClient(Client):
 
                 if equal:
                     print(f"{equal} {_time} {state.position[0]} {self.ghost.records[index].position[0]}")
-                    print(f"{equal} {_time} {state.position[1]} {self.ghost.records[index].position[1]}")
-                    print(f"{equal} {_time} {state.position[2]} {self.ghost.records[index].position[2]}")
-                    print(f"{equal} {_time} {state.velocity[0]} {self.ghost.records[index].speed}")
-                    print(f"{equal} {_time} {state.velocity[1]} {state.velocity[2]}")
+                    # print(f"{equal} {_time} {state.position[1]} {self.ghost.records[index].position[1]}")
+                    # print(f"{equal} {_time} {state.position[2]} {self.ghost.records[index].position[2]}")
+                    # print(f"{equal} {_time} {state.velocity[0]} {self.ghost.records[index].speed}")
+                    # print(f"{equal} {_time} {state.velocity[1]} {state.velocity[2]}")
                     # print(f"{equal} {_time} {state.position[1]} {self.ghost.records[index].position[1]}")
                     # print(f"{equal} {_time} {state.position[2]} {self.ghost.records[index].position[2]}")
                     # self.state_min_change = self.deep_copy(self.current_buffer)
@@ -112,30 +133,66 @@ class MainClient(Client):
                     # self.last_ok_state.up = state.input_accelerate
                     # self.last_ok_state.down = state.input_brake
 
-                    self.state_min_change = state
+                    self.state_min_change = self.current_state
+
+                    # maybe don't copy 11th tick though
+                    # or changed the pressed keys for the next iteration?
                     self.event_min_change = self.deep_copy(self.current_buffer)
 
-                    print(self.list_changes)
+                    # print(self.list_changes)
                     self.list_changes = []
                     self.nb_inputs_change = 0
 
-                    print(self.current_buffer.to_commands_str())
+                    # print(self.current_buffer.to_commands_str())
                     self.save_result(self.race_time)
 
                 else:
+                    # print(f"{equal} {_time} {state.position[0]} {self.ghost.records[index].position[0]}")
+                    
                     # Change inputs
                     self.change_inputs(self.current_buffer)
                     iface.set_event_buffer(self.current_buffer)
+                    # print(self.list_changes)
+                    # if self.list_changes == [9, 29, 39]:
+                    #     print(self.current_buffer.to_commands_str())
+                    #     sys.exit()
                     # print(self.current_buffer.to_commands_str())
                     # return
                     iface.rewind_to_state(self.state_min_change)
+                
+                self.current_state = None
 
     def is_equal(self, state, record):
+        speed       = record.display_speed / 3.6
+        vel_heading = record.vel_heading / 128 * (math.pi)
+        vel_pitch   = record.vel_pitch   / 128 * (math.pi / 2)
+        
+        # print(f"{state.velocity[0]} {speed*math.cos(vel_pitch)*math.cos(vel_heading)}")
+        # print(f"{state.velocity[1]} {speed*math.cos(vel_pitch)*math.sin(vel_heading)}")
+        # print(f"{state.velocity[2]} {speed*math.sin(vel_pitch)}")
+        
+        # print(f"{record.speed} {record.vel_pitch}")
+
         if state.position != record.position:
             return False
-            
-        # if state.angle != record.angle:
-        #     return False
+
+        # int16		Velocity								(-> exp(Velocity/1000); 0x8000 means 0)
+        # int8		VelocityHeading							(-0x80..0x7F -> -pi..pi)
+        # int8		VelocityPitch							(-0x80..0x7F -> -pi/2..pi/2)
+        
+        # The rotation of the car is calculated as a quaternion.
+
+        # The real part of the quaternion is calculated as cos(angle) which corresponds to a rotation of 2*angle around the rotation axis.
+        # The imaginary part of the quaternion (the rotation axis) is calculated as the vector 
+        # (sin(angle)*cos(axisPitch)*cos(axisHeading), 
+        # sin(angle)*cos(axisPitch)*sin(axisHeading), 
+        # sin(angle)*sin(axisPitch)).
+        # You can convert this quaternion to a transform matrix.
+
+        # The velocity vector (direction and Velocity of movement) is calculated in a similar way: 
+        # (Velocity*cos(VelocityPitch)*cos(VelocityHeading), 
+        # Velocity*cos(VelocityPitch)*sin(VelocityHeading), 
+        # Velocity*sin(VelocityPitch)).
         
         return True
 
@@ -176,19 +233,18 @@ class MainClient(Client):
         pressed.down = self.state_min_change.input_brake
         pressed.up = self.state_min_change.input_accelerate
 
-        new = sorted(new, key=lambda n: n%10)
+        new = sorted(new, key=lambda n: n % NB_TICKS)
 
         # Add new inputs
         for change in new:
             # event_time
-            tick = change % 10
-            event_time = self.state_min_change.time - 2610 + tick * 10
+            type_change = change // NB_TICKS
+            tick        = change  % NB_TICKS
 
+            event_time = self.state_min_change.time - 2610 + tick * 10
             
-            # print(f"{event_time=}")
-            # print(f"{change=}")
             # event_input and event_value
-            if change // 10 == 0:
+            if type_change == 0:
                 # direction 1
                 if pressed.left:
                     self.add_input(pressed, event_time, REL, LEFT)
@@ -199,7 +255,7 @@ class MainClient(Client):
                 else:
                     self.add_input(pressed, event_time, PRESS, LEFT)
 
-            if change // 10 == 1:
+            if type_change == 1:
                 # direction 2
                 if pressed.left:
                     self.add_input(pressed, event_time, REL, LEFT)
@@ -211,14 +267,14 @@ class MainClient(Client):
                 else:
                     self.add_input(pressed, event_time, PRESS, RIGHT)
 
-            if change // 10 == 2:
+            if type_change == 2:
                 # down
                 if pressed.down:
                     self.add_input(pressed, event_time, REL, DOWN)
                 else:
                     self.add_input(pressed, event_time, PRESS, DOWN)
 
-            if change // 10 == 3:
+            if type_change == 3:
                 # up
                 if pressed.up:
                     self.add_input(pressed, event_time, REL, UP)
@@ -233,16 +289,17 @@ class MainClient(Client):
         Strategy global:
         Try 0 input change (1 iteration)
         Try 1 input change (40 iterations)
-        Try 2 inputs change (? iterations)
-        ...
+        Try 2 inputs change...
+
         The idea is to get the next logical self.list_changes
         if [] (no changes), then next should be [0]
         Then [1]... [39] at which point we tried all 1 input change and nothing worked
         So try 2 inputs [0, 1], [0, 2]... [0, 39] then [1, 2]... [1, 39]... [38, 39]
         Then 3 inputs [0, 1, 2]...
 
-        TODO: avoid duplicates
-        TODO: avoid 0/10, 1/11...
+        Extra stuff: 
+        - avoid duplicates
+        - avoid 0/10, 1/11...
         """
         # Deep copy self.list_changes
         last_list_changes = []
@@ -253,8 +310,8 @@ class MainClient(Client):
         # self.list_changes = [0, 23, 39]
 
         impossible_list = []
-        for i in range(10):
-            impossible_list.append((i, i+10))
+        for i in range(NB_TICKS):
+            impossible_list.append((i, i+NB_TICKS))
 
         size = len(self.list_changes)
         # print(size)
@@ -266,12 +323,12 @@ class MainClient(Client):
             i = -1
             backtracking = True
             while backtracking:
-                self.list_changes[i] += 1
-                if self.list_changes[i] > 39 + i + 1:
+                
+                if self.list_changes[i] >= NB_TICKS*4 + i:
                     if -i < size:
                         backtracking = True
                         # self.list_changes[i-1] += 1
-                        self.list_changes[i] = self.list_changes[i-1] + 1
+                        # self.list_changes[i] = self.list_changes[i-1] + 2
                         i -= 1
                     else:
                         backtracking = False
@@ -279,11 +336,17 @@ class MainClient(Client):
                         self.list_changes = [*range(size + 1)]
                 else:
                     backtracking = False
+                    self.list_changes[i] += 1
                     
+                    while i < -1:
+                        self.list_changes[i+1] = self.list_changes[i] + 1
+                        i += 1
+
                     # Skip 0/10, 1/11...
                     for a, b in impossible_list:
                         if a in self.list_changes and b in self.list_changes:
                             backtracking = True
+                            i = max(self.list_changes.index(a), self.list_changes.index(b)) - size
                             break
         
         # print(self.list_changes)
