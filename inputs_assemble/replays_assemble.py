@@ -9,7 +9,7 @@ from tminterface.commandlist import CommandList, InputCommand, InputType, BOT_IN
 import pygbx
 import generate_input_file
 
-from SUtil import ms_to_sec
+from SUtil import ms_to_sec, to_sec
 
 @dataclass
 class Split:
@@ -33,11 +33,13 @@ HOW TO USE
 - Use "ignore_cp" to NOT respawn on some CP (rings or CPs that the replay didn't respawn on)
 """
 
-SAME_RESPAWN_REPLAYS = True
+SAME_RESPAWN_REPLAYS = False
 
 route = []
-# route.append(Split(filename="T.A.L.O.S_KMAIL COLINS(284'58''78).Replay.Gbx", remove_fails=True, ignore_cp=[]))
+# route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", end_cp=3))
+# route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", ignore_cp=[2]))
 # route.append(Split(filename="ASUS2_T.A.L.O.S.Replay.gbx"                   , remove_fails=True, ignore_cp=[]))
+route.append(Split(filename="jerev_so444743A42C31F30F30C31A42743444.Replay.gbx", ignore_cp=[4]))
 
 
 class RespawnState:
@@ -105,7 +107,7 @@ class Replay:
 
         return inputs_str
         
-    def extract_sorted_commands(self, inputs_str: str) -> CommandList:
+    def extract_sorted_commands(self, inputs_str: str) -> list[InputCommand]:
         """Transform inputs in sorted commands (free inputs clean up)"""
         cmdlist = CommandList(inputs_str)
         commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
@@ -154,7 +156,7 @@ def create_state(timestamp: int, commands: list[InputCommand]) -> RespawnState:
     
     return state
 
-def compute_commands_transition(new_respawn_state, last_respawn_state):
+def compute_commands_transition(new_respawn_state, last_respawn_state) -> list[InputCommand]:
     """Find input differences between end of last split to start of new split and return commands to fix transition"""
     commands = []
 
@@ -162,12 +164,27 @@ def compute_commands_transition(new_respawn_state, last_respawn_state):
 
     for i in range(InputType.UNKNOWN):
         if new_respawn_state.inputs[i] != last_respawn_state.inputs[i]:
-            inputs_type = InputType(i)
+            input_type = InputType(i)
             state = new_respawn_state.inputs[i]
 
-            commands.append(InputCommand(timestamp, inputs_type, state))
+            commands.append(InputCommand(timestamp, input_type, state))
 
     return commands
+
+def compute_commands_split(commands: list[InputCommand], start_time: int, end_time: int) -> list[InputCommand]:
+    """Get commands between start_time and end_time, with deepcopy"""
+    commands_split = []
+
+    deep_copy = True
+
+    if deep_copy:
+        for command in commands:
+            if start_time <= command.timestamp < end_time:
+                commands_split.append(InputCommand(command.timestamp, command.input_type, command.state))
+    else:
+        commands_split = [command for command in commands if start_time <= command.timestamp < end_time]
+
+    return commands_split
 
 def find_command_index(commands: CommandList, end_time: int, input_type: InputType, state: int) -> int:
     """
@@ -248,6 +265,9 @@ def to_script(commands: list) -> str:
     result_string = ""
     for command in commands:
         result_string += command.to_script() + "\n"
+    
+    result_string = to_sec(result_string)
+
     return result_string
 
 def main():
@@ -322,7 +342,7 @@ def main():
         for nb_cp in range(1, nb_cp_total + 1):
             best_split = None
             for split in route_expanded:
-                if split.end_cp == nb_cp:            
+                if split.end_cp == nb_cp:
                     if best_split is None or split.duration < best_split.duration:
                         best_split = split
             
@@ -336,7 +356,8 @@ def main():
                 cp_str = best_split.end_cp
             else:
                 cp_str = str(best_split.start_cp) + "-" + str(best_split.end_cp)
-            print(f"{best_split.filename} with CP {cp_str}, time={ms_to_sec(best_split.duration)}")
+                
+            print(f"CP {cp_str}: time={ms_to_sec(best_split.duration)} for {best_split.filename}")
 
     else:
         route_timed = route_expanded
@@ -356,13 +377,16 @@ def main():
         last_respawn_state = create_state(split.end_time, replay.commands)
         
         # Get commands between start_time and end_time
-        commands_split = [command for command in replay.commands if split.start_time <= command.timestamp < split.end_time]
+        commands_split = compute_commands_split(replay.commands, split.start_time, split.end_time)
 
         # Combine transition state + new commands
         new_commands = commands_transition + commands_split
 
         # Delay commands
         delay = last_end_time - split.start_time
+        # print(f"{split.start_time=}")
+        # print(f"{split.end_time=}")
+        # print(f"{delay=}")
         for i in range(len(new_commands)):
             new_commands[i].timestamp += delay
 
