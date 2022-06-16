@@ -33,7 +33,7 @@ class MainClient(Client):
                 self.best = self.current
                 self.time = self.current_time
 
-            if self.is_past_eval_time():
+            if self.is_max_time():
                 print(f"base at {self.time}: {self.best=}")
 
         elif self.phase == BFPhase.SEARCH:
@@ -56,6 +56,9 @@ class MainClient(Client):
 
     def is_past_eval_time(self):
         return TIME_MAX <= self.current_time
+
+    def is_max_time(self):
+        return TIME_MAX == self.current_time
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'

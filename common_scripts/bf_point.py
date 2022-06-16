@@ -36,7 +36,7 @@ class MainClient(Client):
                 self.best = self.current
                 self.time = self.current_time
 
-            if self.is_past_eval_time():
+            if self.is_max_time():
                 print(f"base at {self.time}: {self.best=}")
 
         elif self.phase == BFPhase.SEARCH:
@@ -50,8 +50,19 @@ class MainClient(Client):
         return response
 
     def is_better(self, iface):
-        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-        pos = iface.get_simulation_state().position
+        state = iface.get_simulation_state()
+        pos = state.position
+        speed = numpy.linalg.norm(state.velocity)
+
+        # Conditions
+        if get_nb_cp(state) < 3:
+            return False
+        if speed < 450:
+            return False
+        if pos[0] < 500 and pos[0] < 500 and pos[0] < 500:
+            return False
+        
+        # Distance evaluation
         self.current = (pos[0]-POINT[0]) ** 2 + (pos[1]-POINT[1]) ** 2 + (pos[2]-POINT[2]) ** 2
         return self.best == -1 or self.current < self.best
 
@@ -60,6 +71,12 @@ class MainClient(Client):
 
     def is_past_eval_time(self):
         return TIME_MAX <= self.current_time
+
+    def is_max_time(self):
+        return TIME_MAX == self.current_time
+
+def get_nb_cp(state):
+    return len([time for (time, _) in state.cp_data.cp_times if time != -1])
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
