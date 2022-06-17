@@ -30,9 +30,9 @@ UP = BINARY_ACCELERATE_NAME
 FORMAT_DECIMAL = True
 
 MAX_TIME = 190000
-REPLAY_NAME = r"C:\Users\rmnlm\Documents\Trackmania\Tracks\Replays\2022-05-28-14-18-04_A01-Race.Replay.Gbx"
+REPLAY_NAME = r"C:\Users\rmnlm\Documents\Trackmania\Tracks\Replays\2022-06-17-18-40-45_A06_almost_uber.Replay.Gbx"
 INPUTS_NAME = "guessed_inputs.txt"
-CLEAR_INPUTS = True
+CLEAR_INPUTS = False
 NB_TICKS = 9
 
 # class State():
@@ -77,6 +77,7 @@ class Ghost():
         return ghost
     
     def update_next_inputs(self, index):
+        # Do not call this while inputs are fixed or it can override pad
         self.next_steer = self.records[index].input_steer # left/straight/right
         self.next_up    = self.records[index].input_gas   # bool
         self.next_down  = self.records[index].input_brake # bool
@@ -88,6 +89,7 @@ class MainClient(Client):
         self.list_changes = []
         self.nb_inputs_change = 0
         self.nb_iterations = 0
+        self.last_fixed_input_time = 0
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
@@ -144,7 +146,9 @@ class MainClient(Client):
                 self.state_min_change = state
                 self.current_state = state
                 self.event_min_change = self.deep_copy(self.current_buffer)
-                self.ghost.update_next_inputs(index=1)
+
+                if not self.is_in_fixed_inputs():
+                    self.ghost.update_next_inputs(index=1)
                 
             if self.race_time % 100 == 90:
                 if not self.current_state:
@@ -165,8 +169,8 @@ class MainClient(Client):
                 #     print(f"{equal} {_time} {state.position[2]} {self.ghost.records[index].position[2]}")
 
                 if equal:
-                    print(f"{_time=}, WheelDirectionRotation={self.ghost.records[index].WheelDirectionRotation}")
-                    # print(f"steer={self.ghost.records[index].input_steer}, gas={self.ghost.records[index].input_gas}, brake={self.ghost.records[index].input_brake}, time={_time}")
+                    # print(f"{_time=}, WheelDirectionRotation={self.ghost.records[index].WheelDirectionRotation}")
+                    print(f"steer={self.ghost.records[index].input_steer}, gas={self.ghost.records[index].input_gas}, brake={self.ghost.records[index].input_brake}, time={_time}")
                     # print(f"{self.ghost.records[index].input_steer}")
                     # print(f"{self.ghost.records[index].input_gas}")
                     # print(f"{self.ghost.records[index].input_brake}")
@@ -196,15 +200,20 @@ class MainClient(Client):
                     self.list_changes = []
                     # self.nb_inputs_change = 0
 
-                    self.ghost.update_next_inputs(index+1)
-                    self.change_inputs(False) # change with ghost next inputs
+                    if not self.is_in_fixed_inputs():
+                        # Change with ghost next inputs
+                        self.ghost.update_next_inputs(index+1)
+                        self.change_inputs(False) 
+
                     iface.set_event_buffer(self.current_buffer)
 
                 else:
                     # print(f"{equal} {_time} {state.position[0]} {self.ghost.records[index].position[0]}")
                     
-                    # Change inputs
-                    self.change_inputs(True)
+                    if not self.is_in_fixed_inputs():
+                        # Change inputs
+                        self.change_inputs(True)
+
                     iface.set_event_buffer(self.current_buffer)
                     # print(self.list_changes)
                     # if self.list_changes == [9, 29, 39]:
@@ -337,6 +346,11 @@ class MainClient(Client):
             
     # def add_inputs_ghost_tick(self, buffer):
         # Add inputs from ghost tick
+
+        # If still in fixed inputs, don't add from ghost tick
+        # if self.is_in_fixed_inputs():
+        #     return
+
         event_time = self.state_min_change.time - 2610 + NB_TICKS * 10
 
         if self.ghost.next_steer == "left":
@@ -495,6 +509,11 @@ class MainClient(Client):
             else: print(f"{command.input_type=}"); continue
 
             self.current_buffer.add(command.timestamp, command.input, command.state)
+            
+            self.last_fixed_input_time = max(self.last_fixed_input_time, command.timestamp)
+
+    def is_in_fixed_inputs(self):
+        return self.last_fixed_input_time > self.race_time + 80
 
     def save_result(self, time_found=""):
         # if time_found == "":
