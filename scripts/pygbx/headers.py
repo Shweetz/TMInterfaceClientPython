@@ -1,4 +1,5 @@
 import math
+import struct
 
 class CGameHeader(object):
     """A generic header class that contains it's class ID."""
@@ -203,6 +204,41 @@ class GhostSampleRecord(object):
             return 0
 
         return int(abs(math.exp(self.speed / 1000.0) * 3.6))
+        
+    @property
+    def rpm(self):
+        raw = self.raw_data[8:10]
+        return struct.unpack('H', raw)[0]
+
+    @property
+    def input_steer(self):
+        # -127/0/128
+        raw = self.raw_data[18] # 0/127/255
+        # raw = struct.unpack('b', self.raw_data[18:19])[0] # 0/127/-1
+        # raw = struct.unpack('B', self.raw_data[18:19])[0] # 0/127/255
+
+        val = raw - 127
+        if val < 0:
+            return "left"
+        if val == 0:
+            return "straight"
+        if val > 0:
+            return "right"
+
+    @property
+    def input_gas(self):
+        raw = self.raw_data[19]
+        return raw == 255
+
+    @property
+    def input_brake(self):
+        raw = self.raw_data[20]
+        return raw == 255
+        
+    @property
+    def WheelDirectionRotation(self):
+        raw = self.raw_data[26:27]
+        return struct.unpack('B', raw)[0]
 
     def get_block_position(self, xoff=0, yoff=0, zoff=0):
         """Calculates the block coordinates that the car is currently passing through in this sample record.
