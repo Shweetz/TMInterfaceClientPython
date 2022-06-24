@@ -70,6 +70,7 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        iface.execute_command('set controller none')
         print(f"Randomizing inputs between {lowest_poss_change} and {highest_poss_change}")
         for rule in rules:
             print(rule)

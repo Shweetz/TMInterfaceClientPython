@@ -59,7 +59,7 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
-        # iface.execute_command('set controller bruteforce')
+        iface.execute_command('set controller bruteforce')
         # iface.execute_command('set bf_search_forever true')
 
     def on_simulation_begin(self, iface):
