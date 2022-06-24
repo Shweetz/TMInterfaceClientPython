@@ -79,6 +79,7 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        iface.execute_command('set controller bruteforce')
         print(f'{eval.__str__()}, {parameter.__str__()}, {trigger_shape.__str__()}, {LOCK_BASE_RUN=}, {min_diff=}, {min_diff_frac=}')
 
     def on_simulation_begin(self, iface):

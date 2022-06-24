@@ -15,6 +15,7 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        iface.execute_command('set controller bruteforce')
 
     def on_simulation_begin(self, iface):
         self.lowest_time = iface.get_event_buffer().events_duration
