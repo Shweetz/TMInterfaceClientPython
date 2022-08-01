@@ -33,7 +33,12 @@ HOW TO USE
 - Use "ignore_cp" to NOT respawn on some CP (rings or CPs that the replay didn't respawn on)
 """
 
-SAME_RESPAWN_REPLAYS = False
+# Set to True to try and automatically find fastest splits
+# Set to False if it causes problems (example: you try to combine replays with different routes)
+SAME_RESPAWN_REPLAYS = True
+
+# If you want "realistic respawn", set a time value in ms to add wait between crossing CP and respawn
+WAIT_AFTER_CP_CROSS = 0
 
 route = []
 # route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", end_cp=3))
@@ -172,7 +177,7 @@ def compute_commands_transition(new_respawn_state, last_respawn_state) -> list[I
     return commands
 
 def compute_commands_split(commands: list[InputCommand], start_time: int, end_time: int) -> list[InputCommand]:
-    """Get commands between start_time and end_time, with deepcopy"""
+    """Get commands between start_time and end_time (respawn is at start_time, if any), with deepcopy"""
     commands_split = []
 
     deep_copy = True
@@ -391,6 +396,12 @@ def main():
             new_commands[i].timestamp += delay
 
         last_end_time = last_end_time - split.start_time + split.end_time
+
+        # Add a wait after crossing CP
+        wait = WAIT_AFTER_CP_CROSS
+        if (wait > 0):
+            # new_commands.append(InputCommand(last_end_time, InputType.RESPAWN, True)) # add respawn on CP collect
+            last_end_time += wait
 
         # Print inputs
         assembled_inputs += to_script(new_commands)
