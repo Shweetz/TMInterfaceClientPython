@@ -35,7 +35,7 @@ HOW TO USE
 
 # Set to True to try and automatically find fastest splits
 # Set to False if it causes problems (example: you try to combine replays with different routes)
-SAME_RESPAWN_REPLAYS = True
+TRY_FASTEST_SPLITS = True
 
 # If you want "realistic respawn", set a time value in ms to add wait between crossing CP and respawn
 WAIT_AFTER_CP_CROSS = 0
@@ -136,7 +136,10 @@ def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], command
         # Find previous press enter before end_time
         end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
         start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
-        start_time = commands[start_index].timestamp
+        if start_index is None:
+            start_time = 0
+        else:
+            start_time = commands[start_index].timestamp
 
     elif start_cp == 0:
         start_time = 0
@@ -224,8 +227,10 @@ def find_command_index(commands: CommandList, end_time: int, input_type: InputTy
         command = commands[index]
 
         # Go through commands until finding it or higher end_time
-        while command.timestamp == end_time and command.input_type != input_type and index < len(commands) - 1:
+        while command.timestamp == end_time and command.input_type != input_type:
             index += 1
+            if index >= len(commands):
+                return None
             command = commands[index]
 
         if command.timestamp > end_time:
@@ -233,8 +238,8 @@ def find_command_index(commands: CommandList, end_time: int, input_type: InputTy
             return index
     
     # Index max means grab inputs until the end
-    if index == len(commands) - 1:
-        return index
+    # if index == len(commands) - 1:
+    #     return index
 
     # Final check
     if command.timestamp != end_time or command.input_type != input_type:
@@ -247,19 +252,24 @@ def find_previous_index(commands: CommandList, end_index: int, input_type: Input
     In a CommandList, find the index of the previous command with the specified InputType.
     Example: find_command_index(commands, 1000, InputType.RESPAWN) -> 45
     """
-    index = end_index - 1
+    if end_index is None:
+        index = len(commands) - 1
+    else:
+        index = end_index - 1
     command = commands[index]
     
     # Go back one command at a time until finding the previous
-    while (command.input_type != input_type or command.state != state) and index > 0:
+    while command.input_type != input_type or command.state != state:
         index -= 1
+        if index < 0:
+            return None
         command = commands[index]
 
     # Index 0 means grab inputs from the start
-    if index == 0:
-        return index
+    # if index == 0:
+    #     return index
 
-    # Final check (index != 0)
+    # Final check
     if command.input_type != input_type:
         print(f"ERROR in find_previous_index: {command.input_type=} != {input_type=}")
     
@@ -339,7 +349,7 @@ def main():
         print(f"{split.filename} with CP {cp_str}, time={ms_to_sec(split.duration)}")
 
     # Second pass through route: find out each split time
-    if SAME_RESPAWN_REPLAYS and len(route) > 1:
+    if TRY_FASTEST_SPLITS and len(route) > 1:
         print("")
         print("Finding fastest splits...")
         nb_cp_total = route_expanded[-1].end_cp
