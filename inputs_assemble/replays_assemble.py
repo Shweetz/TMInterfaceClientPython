@@ -2,8 +2,6 @@ from dataclasses import dataclass, field
 import math
 import operator
 import os
-import sys
-import time
 
 from tminterface.commandlist import CommandList, InputCommand, InputType, BOT_INPUT_TYPES
 import pygbx
@@ -37,14 +35,15 @@ HOW TO USE
 # Set to False if it causes problems (example: you try to combine replays with different routes)
 TRY_FASTEST_SPLITS = True
 
+# Extract the raw inputs from the replays into .txt files
+WRITE_RAW_INPUTS = False
+
 # If you want "realistic respawn", set a time value in ms to add wait between crossing CP and respawn
 WAIT_AFTER_CP_CROSS = 0
 
+
 route = []
-# route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", end_cp=3))
 # route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", ignore_cp=[2]))
-# route.append(Split(filename="ASUS2_T.A.L.O.S.Replay.gbx"                   , remove_fails=True, ignore_cp=[]))
-route.append(Split(filename="jerev_so444743A42C31F30F30C31A42743444.Replay.gbx", ignore_cp=[4]))
 
 
 class RespawnState:
@@ -65,6 +64,7 @@ class Replay:
         self.cp_times = self.extract_cp_times(filename)
         self.inputs_str = self.extract_inputs(filename)
         self.commands = self.extract_sorted_commands(self.inputs_str)
+        self.cp_not_respawned = self.extract_not_respawned(self.cp_times, self.commands)
 
     def extract_cp_times(self, filename: str) -> list[int]:
         """Extract CP times from a replay with pygbx"""
@@ -101,14 +101,15 @@ class Replay:
         for input in inputs_list:
             inputs_str += input
         
-        # Write inputs to text file
-        if filename.lower().endswith(".replay.gbx"):
-            filename_inputs = filename[:-11] + ".txt"
-        else:
-            filename_inputs = filename + ".txt"
+        if WRITE_RAW_INPUTS:
+            # Write inputs to text file
+            if filename.lower().endswith(".replay.gbx"):
+                filename_inputs = filename[:-11] + ".txt"
+            else:
+                filename_inputs = filename + ".txt"
 
-        with open(filename_inputs, "w") as f:
-            f.write(inputs_str)
+            with open(filename_inputs, "w") as f:
+                f.write(inputs_str)
 
         return inputs_str
         
@@ -119,6 +120,31 @@ class Replay:
         commands.sort(key=operator.attrgetter("timestamp"))
 
         return commands
+        
+    def extract_not_respawned(self, cp_times: list[int], commands: list[InputCommand]) -> list[int]:
+        """Find which CP weren't respawned, using cp_times and commands"""
+        # i+1 because i represents cp number (start is not a cp)
+        not_respawned = [i+1 for i in range(len(cp_times) - 1)]
+
+        # Check all respawn commands
+        for command in commands:
+            if command.input_type == InputType.RESPAWN and command.state:
+                # print(command.timestamp)
+                # Find out which which cp was crossed last before respawn
+                # WARNING WITH NON-RESPAWNABLE CPS (RINGS)
+                for cp in range(1, len(cp_times)):
+                    # print(f"{cp=}")
+                    if cp_times[cp-1] <= command.timestamp < cp_times[cp]:
+                        if cp in not_respawned:
+                            not_respawned.remove(cp)
+                        break
+        
+        return not_respawned
+
+
+class Subroute:
+    # todo
+    pass
 
 
 def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], commands: CommandList) -> list[int, int]:
@@ -131,8 +157,26 @@ def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], command
     # CP0 is 0 but not in the list, so there's a - 1
     end_time = cp_times[end_cp - 1]
 
+    # Find start_time but if start_cp, use time since start_cp and not last respawn
+    # if start_cp is None:
+    #     # Find previous press enter before end_time
+    #     end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
+    #     start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
+    #     if start_index is None:
+    #         start_time = 0
+    #     else:
+    #         start_time = commands[start_index].timestamp
+
+    # elif start_cp == 0:
+    #     start_time = 0
+    
+    # else:
+    #     start_time = cp_times[start_cp - 1]
+    
     # Find start_time
-    if start_cp is None:
+    if start_cp is not None and start_cp == 0:
+        start_time = 0
+    else:
         # Find previous press enter before end_time
         end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
         start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
@@ -140,12 +184,6 @@ def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], command
             start_time = 0
         else:
             start_time = commands[start_index].timestamp
-
-    elif start_cp == 0:
-        start_time = 0
-    
-    else:
-        start_time = cp_times[start_cp - 1]
 
     return start_time, end_time
 
@@ -285,6 +323,19 @@ def to_script(commands: list) -> str:
 
     return result_string
 
+def try_subroute(subroute: list[int], best_splits: dict[(int, int): Split]) -> int:
+    subroute_time = 0
+
+    for i in range(len(subroute)-1):
+        key = (subroute[i],subroute[i+1])
+        if key not in best_splits:
+            return -1
+        
+        subroute_time += best_splits[key].duration
+
+    return subroute_time
+
+
 def main():
     assembled_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + "inputs_assemble.txt"
 
@@ -294,11 +345,12 @@ def main():
             if file.lower().endswith(".replay.gbx"):
                 route.append(Split(filename=file))
 
-    # First pass through route: grab info from replays and expand route to remove fails if needed
+    # Grab info from replays and expand route to remove fails if needed
     print("")
     print("Reading replay(s)...")
     replays = {}
     route_expanded = []
+    global_cp_not_respawned = []
     for split in route:
         if not split.filename:
             print(f"ERROR: no filename specified")
@@ -310,27 +362,33 @@ def main():
         # Read and store replay info
         if split.filename not in replays:
             replays[split.filename] = Replay(split.filename)
+            print(f"CPs not respawned: {replays[split.filename].cp_not_respawned}")
 
         # Remove fails (will force respawn every CP that is not in ignore_cp)
         if split.remove_fails:
             split_start_cp = split.start_cp if split.start_cp is not None else 0
             split_end_cp = split.end_cp if split.end_cp is not None else len(replays[split.filename].cp_times)
 
+            last_respawned_cp = 0
+
             # +1 because i represents end_cp and not start_cp
             for i in range(split_start_cp + 1, split_end_cp + 1):
-                if i in split.ignore_cp:
-                    # Don't respawn = don't create a split for the CP
-                    continue
-                
-                subsplit = Split(filename=split.filename, end_cp=i)
+                subsplit = Split(filename=split.filename, start_cp=last_respawned_cp, end_cp=i)
                 # subsplit.update(replay)
                 route_expanded.append(subsplit)
+
+                if i in split.ignore_cp or i in replays[split.filename].cp_not_respawned:
+                    # At least 1 replay didn't respawn
+                    if i not in global_cp_not_respawned:
+                        global_cp_not_respawned.append(i)
+                else:
+                    last_respawned_cp = i
 
         else:
             # split.update(replay)
             route_expanded.append(split)
 
-    # Second pass through route: find out each split time
+    # Find out each split time
     print("")
     print("Checking split times...")
     for split in route_expanded:
@@ -348,36 +406,72 @@ def main():
 
         print(f"{split.filename} with CP {cp_str}, time={ms_to_sec(split.duration)}")
 
-    # Second pass through route: find out each split time
+    # Find out the fastest splits
     if TRY_FASTEST_SPLITS and len(route) > 1:
+        global_cp_not_respawned.sort()
+        print("")
+        print(f"{global_cp_not_respawned=}")
+        
         print("")
         print("Finding fastest splits...")
         nb_cp_total = route_expanded[-1].end_cp
         route_timed = []
-        for nb_cp in range(1, nb_cp_total + 1):
-            best_split = None
+
+        best_splits = {}
+        for curr_cp in range(1, nb_cp_total + 1):
             for split in route_expanded:
-                if split.end_cp == nb_cp:
-                    if best_split is None or split.duration < best_split.duration:
-                        best_split = split
-            
-            if best_split is None:
-                continue
+                key = (split.start_cp, split.end_cp)
+                if key not in best_splits or split.duration < best_splits[key].duration:
+                    best_splits[key] = split
+        
+        last_respawned_cp = 0
+        best_subroute = -1
+        best_subroute_time = -1
+        for curr_cp in range(1, nb_cp_total + 1):
 
-            route_timed.append(best_split)
+            if curr_cp not in global_cp_not_respawned:
+                # All replays respawned this CP: join splits
 
-            # Print best_split info
-            if best_split.start_cp is None:
-                cp_str = best_split.end_cp
-            else:
-                cp_str = str(best_split.start_cp) + "-" + str(best_split.end_cp)
-                
-            print(f"CP {cp_str}: time={ms_to_sec(best_split.duration)} for {best_split.filename}")
+                cp_skipped = curr_cp - last_respawned_cp - 1
+                nb_subroutes_poss = pow(2, cp_skipped)
+                # Find best subroute
+                for subroute_int in range(nb_subroutes_poss):
+                    subroute_bin = "{0:b}".format(subroute_int)
+
+                    subroute = [last_respawned_cp]
+                    for i, char in enumerate(subroute_bin):
+                        if char == "1":
+                            subroute.append(last_respawned_cp + 1 + i)
+                    subroute.append(curr_cp)
+
+                    subroute_time = try_subroute(subroute, best_splits)
+
+                    if subroute_time != -1:
+                        if best_subroute_time == -1 or subroute_time < best_subroute_time:
+                            best_subroute = subroute
+                            best_subroute_time = subroute_time
+
+                # Append best splits in route_timed
+                for i in range(len(best_subroute)-1):
+                    best_split = best_splits[(best_subroute[i],best_subroute[i+1])]                 
+                    route_timed.append(best_split)
+
+                    # Print best_split info
+                    if best_split.start_cp is None:
+                        cp_str = best_split.end_cp
+                    else:
+                        cp_str = str(best_split.start_cp) + "-" + str(best_split.end_cp)
+                        
+                    print(f"CP {cp_str}: time={ms_to_sec(best_split.duration)} for {best_split.filename}")
+
+                last_respawned_cp = curr_cp
+                best_subroute = -1
+                best_subroute_time = -1
 
     else:
         route_timed = route_expanded
 
-    # Third pass through route: execute the splits
+    # Execute the splits
     print("")
     print("Assembling splits...")
     last_respawn_state = RespawnState()
