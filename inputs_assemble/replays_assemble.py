@@ -329,6 +329,7 @@ def try_subroute(subroute: list[int], best_splits: dict[(int, int): Split]) -> i
     for i in range(len(subroute)-1):
         key = (subroute[i],subroute[i+1])
         if key not in best_splits:
+            # print(f"no {key=}")
             return -1
         
         subroute_time += best_splits[key].duration
@@ -345,7 +346,7 @@ def main():
             if file.lower().endswith(".replay.gbx"):
                 route.append(Split(filename=file))
 
-    # Grab info from replays and expand route to remove fails if needed
+    # Create Splits from Replays and expand route to remove fails if needed
     print("")
     print("Reading replay(s)...")
     replays = {}
@@ -364,14 +365,14 @@ def main():
             replays[split.filename] = Replay(split.filename)
             print(f"CPs not respawned: {replays[split.filename].cp_not_respawned}")
 
-        # Remove fails (will force respawn every CP that is not in ignore_cp)
+        # Remove fails
         if split.remove_fails:
             split_start_cp = split.start_cp if split.start_cp is not None else 0
             split_end_cp = split.end_cp if split.end_cp is not None else len(replays[split.filename].cp_times)
 
             last_respawned_cp = 0
 
-            # +1 because i represents end_cp and not start_cp
+            # Create subsplits from replay
             for i in range(split_start_cp + 1, split_end_cp + 1):
                 subsplit = Split(filename=split.filename, start_cp=last_respawned_cp, end_cp=i)
                 # subsplit.update(replay)
@@ -425,7 +426,7 @@ def main():
                     best_splits[key] = split
         
         last_respawned_cp = 0
-        best_subroute = -1
+        best_subroute = []
         best_subroute_time = -1
         for curr_cp in range(1, nb_cp_total + 1):
 
@@ -434,9 +435,12 @@ def main():
 
                 cp_skipped = curr_cp - last_respawned_cp - 1
                 nb_subroutes_poss = pow(2, cp_skipped)
+
+                # print(f"CP{last_respawned_cp}-CP{curr_cp}, {nb_subroutes_poss=}")
+
                 # Find best subroute
                 for subroute_int in range(nb_subroutes_poss):
-                    subroute_bin = "{0:b}".format(subroute_int)
+                    subroute_bin = "{0:b}".format(subroute_int).zfill(cp_skipped)
 
                     subroute = [last_respawned_cp]
                     for i, char in enumerate(subroute_bin):
@@ -445,6 +449,9 @@ def main():
                     subroute.append(curr_cp)
 
                     subroute_time = try_subroute(subroute, best_splits)
+
+                    # Uncomment me for algo info
+                    # print(f"try_subroute {subroute_bin} => {subroute}: {subroute_time}")
 
                     if subroute_time != -1:
                         if best_subroute_time == -1 or subroute_time < best_subroute_time:
@@ -465,7 +472,7 @@ def main():
                     print(f"CP {cp_str}: time={ms_to_sec(best_split.duration)} for {best_split.filename}")
 
                 last_respawned_cp = curr_cp
-                best_subroute = -1
+                best_subroute = []
                 best_subroute_time = -1
 
     else:
