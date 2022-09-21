@@ -2,13 +2,12 @@ TIME_MIN = 85000
 TIME_MAX = TIME_MIN
 
 import math
-
 import numpy
+import sys
+
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
-
-import sys
 
 class MainClient(Client):
     def __init__(self) -> None:

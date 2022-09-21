@@ -1,8 +1,10 @@
 TIME_MIN = 83200
 TIME_MAX = 83250
+
 MIN_SPEED_KMH = 450
 MIN_CP = 0
-MUST_TOUCH_GROUND = False # True = 1 wheel must not be in air
+MUST_TOUCH_GROUND = False # True = at least 1 wheel must touch ground
+#TRIGGER = [523, 9, 458, 550, 20, 490]
 
 import math
 import numpy
@@ -25,8 +27,8 @@ class MainClient(Client):
     def on_simulation_begin(self, iface):
         self.lowest_time = iface.get_event_buffer().events_duration
         print(f"Base run time: {self.lowest_time}")
-        if not (TIME_MIN <= self.lowest_time):
-            print("ERROR: MUST HAVE 'TIME_MIN <= REPLAY_TIME'")
+        if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
+            print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
         self.current_time = info.time
@@ -55,6 +57,12 @@ class MainClient(Client):
 
     def is_better(self, iface):
         state = iface.get_simulation_state()
+
+        # Conditions
+        #x, y, z = state.position
+        #x1, y1, z1, x2, y2, z2 = TRIGGER
+        #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
+        #    return False
 
         if MIN_SPEED_KMH > numpy.linalg.norm(state.velocity) * 3.6:
             return False

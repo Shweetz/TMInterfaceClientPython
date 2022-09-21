@@ -1,14 +1,19 @@
 TIME_MIN = 32500
 TIME_MAX = TIME_MIN
-
 POINT = [816, 64, 464]
 
+MIN_SPEED_KMH = 0
+MIN_CP = 0
+MUST_TOUCH_GROUND = False # True = at least 1 wheel must touch ground
+#TRIGGER = [523, 9, 458, 550, 20, 490]
+
 import numpy
+import struct
+import sys
+
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
-
-import sys
 
 class MainClient(Client):
     def __init__(self) -> None:
@@ -56,12 +61,19 @@ class MainClient(Client):
         speed = numpy.linalg.norm(state.velocity)
 
         # Conditions
-        if get_nb_cp(state) < 3:
+        if MIN_SPEED_KMH > speed * 3.6:
             return False
-        if speed < 450:
+
+        if MIN_CP > get_nb_cp(state):
             return False
-        if pos[0] < 500 and pos[0] < 500 and pos[0] < 500:
+
+        if MUST_TOUCH_GROUND and nb_wheels_on_ground(state) == 0:
             return False
+
+        #x, y, z = state.position
+        #x1, y1, z1, x2, y2, z2 = TRIGGER
+        #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
+        #    return False
         
         # Distance evaluation
         self.current = (pos[0]-POINT[0]) ** 2 + (pos[1]-POINT[1]) ** 2 + (pos[2]-POINT[2]) ** 2
@@ -78,6 +90,17 @@ class MainClient(Client):
 
 def get_nb_cp(state):
     return len([time for (time, _) in state.cp_data.cp_times if time != -1])
+
+def nb_wheels_on_ground(state):
+    number = 0
+    
+    for i in range(4):
+        current_offset = (3056 // 4) * i
+        hasgroundcontact = struct.unpack('i', state.simulation_wheels[current_offset+292:current_offset+296])[0]
+        if hasgroundcontact:
+            number += 1
+
+    return number
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
