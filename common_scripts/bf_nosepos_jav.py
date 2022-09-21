@@ -1,11 +1,11 @@
 TIME_MIN = 32500
 
 import math
+import sys
+
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
-
-import sys
 
 class MainClient(Client):
     def __init__(self) -> None:
