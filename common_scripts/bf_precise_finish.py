@@ -29,10 +29,10 @@ class Change:
 """START OF PARAMETERS (you can change here)"""
 rules = []
 
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=17800, end_time=19500, diff=65536))
-rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING    ,  proba=0.02, start_time=17800, end_time=19500, diff=50))
-rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0.02, start_time=17800, end_time=19500, diff=20))
-rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0.02, start_time=17800, end_time=19500, diff=50))
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=56500, end_time=59070, diff=65536))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING    ,  proba=0.02, start_time=56500, end_time=19500, diff=50))
+rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING, proba=0.02, start_time=56500, end_time=59070, diff=50))
+rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,      proba=0.02, start_time=56500, end_time=59070, diff=50))
 
 FILL_INPUTS = True
 
@@ -234,6 +234,7 @@ class MainClient(Client):
         self.base_velocity = None
         self.base_angular_velocity = None
         self.finished = False
+        
         self.randomize_inputs()
         iface.set_event_buffer(self.current_buffer)
         if not self.state_min_change:
@@ -350,6 +351,7 @@ class MainClient(Client):
             time_found = self.time_with_speed_coeff
         # Write inputs in file
         res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+        res_file = os.path.join(os.path.expanduser('~'), "Documents", "TMInterface", "Scripts", file_name)
         with open(res_file, "w") as f:
             f.write(f"# Time: {time_found}, iterations: {self.nb_iterations}\n")
             f.write(self.current_buffer.to_commands_str())

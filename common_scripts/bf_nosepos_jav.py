@@ -1,4 +1,4 @@
-TIME_MIN = 32500
+EVAL_TIME_MIN = 32500
 
 import math
 import sys
@@ -19,18 +19,18 @@ class MainClient(Client):
     def on_simulation_begin(self, iface):
         self.lowest_time = iface.get_event_buffer().events_duration
         print(f"Base run time: {self.lowest_time}")
-        if not (TIME_MIN <= self.lowest_time):
-            print("ERROR: MUST HAVE 'TIME_MIN <= REPLAY_TIME'")
+        if not (EVAL_TIME_MIN <= self.lowest_time):
+            print("ERROR: MUST HAVE 'EVAL_TIME_MIN <= EVAL_TIME_MAX <= REPLAY_TIME'")
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
         response = BFEvaluationResponse()
         response.decision = BFEvaluationDecision.DO_NOTHING
 
-        if TIME_MIN == info.time:
+        if EVAL_TIME_MIN == info.time:
             if self.is_better(iface):
                 response.decision = BFEvaluationDecision.ACCEPT
                 self.best = self.current
-                print(f"base at {TIME_MIN}: {self.best=}")
+                print(f"base at {EVAL_TIME_MIN}: {self.best=}")
             else:
                 response.decision = BFEvaluationDecision.REJECT
 
