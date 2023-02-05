@@ -89,15 +89,12 @@ class MainClient(Client):
         return EVAL_TIME_MAX == self.current_time
 
 def get_nb_cp(state):
-    return len([time for (time, _) in state.cp_data.cp_times if time != -1])
+    return len([cp_time.time for cp_time in state.cp_data.cp_times if cp_time.time != -1])
 
 def nb_wheels_on_ground(state):
     number = 0
-    
-    for i in range(4):
-        current_offset = (3056 // 4) * i
-        hasgroundcontact = struct.unpack('i', state.simulation_wheels[current_offset+292:current_offset+296])[0]
-        if hasgroundcontact:
+    for wheel in state.simulation_wheels:
+        if wheel.real_time_state.has_ground_contact:
             number += 1
 
     return number
