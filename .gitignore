@@ -3,6 +3,7 @@ __pycache__/
 docs/_static
 docs/_templates
 docs/_build
+*.egg-info
 
 *.pyc
 gui_auto/*
