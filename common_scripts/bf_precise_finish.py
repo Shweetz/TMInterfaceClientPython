@@ -39,7 +39,7 @@ FILL_INPUTS = True
 LOCK_BASE_RUN = False
 LOAD_INPUTS_FROM_FILE = False
 LOAD_REPLAY_FROM_STATE = False
-PRECISION = 0.001
+PRECISION = 0.00000001
 
 # steer_cap_accept = True
 steer_equal_last_input_proba = 0
@@ -66,8 +66,8 @@ class MainClient(Client):
         # self.base_velocity = None
         self.best_coeff = -1
         self.nb_iterations = 0
-        self.lowest_time = 23730
-
+        self.lowest_time = -1
+        
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
         iface.execute_command('set controller none')
@@ -86,7 +86,8 @@ class MainClient(Client):
         if FILL_INPUTS:
             self.fill_inputs()
 
-        # self.lowest_time = self.begin_buffer.events_duration
+        self.lowest_time = self.begin_buffer.events_duration
+        print(f'Replay time: {self.lowest_time}')
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.current_buffer.to_commands_str())
         
