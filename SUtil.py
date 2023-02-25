@@ -6,6 +6,7 @@ import struct
 
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME, BINARY_RESPAWN_NAME
 from tminterface.constants import SIMULATION_WHEELS_SIZE
+from tminterface.eventbuffer import EventBufferData
 
 class Input(Enum):
     UP___ = BINARY_ACCELERATE_NAME
@@ -224,8 +225,14 @@ def ms_to_sec(line_time: str) -> str:
 
     if hours > 0:
         time_sec += str(hours) + ":"
+        if minutes < 10:
+            time_sec += "0" # avoid 1:1:1.11
+
     if minutes > 0 or hours > 0:
         time_sec += str(minutes) + ":"
+        if seconds < 10:
+            time_sec += "0" # avoid 1:1.11
+            
     time_sec += f"{seconds:.2f}"
 
     return time_sec
@@ -259,20 +266,21 @@ def to_rad(deg):
 def to_deg(rad):
     return rad * 180 / math.pi
 
-def add_events_in_buffer(events, buffer):
+def deep_copy_buffer(base_buffer, new_buffer):
     """
-    events: list of Event
-    buffer: EventBufferData (buffer.control_names must be filled)
+    base_buffer: EventBufferData to copy from
+    new_buffer : EventBufferData to copy into
     """
-    # print(buffer.control_names)
-    for event in events:
-        if event.name_index > len(buffer.control_names):
-            # print(event.name_index)
-            pass
-        else:
-            # print(event.name_index)
+    if not new_buffer:
+        # Create EventBufferData with events_duration and control_names
+        new_buffer = base_buffer.copy()
+    
+    new_buffer.clear()
+    for event in base_buffer.events:
+        if event.name_index <= len(base_buffer.control_names):
             event_time = event.time - 100010
-            event_name = buffer.control_names[event.name_index]
+            event_name = base_buffer.control_names[event.name_index]
             event_value = event.analog_value if "analog" in event_name else event.binary_value
-            buffer.add(event_time, event_name, event_value)
+            new_buffer.add(event_time, event_name, event_value)
+
     

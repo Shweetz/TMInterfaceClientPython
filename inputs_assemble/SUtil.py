@@ -224,8 +224,14 @@ def ms_to_sec(line_time: str) -> str:
 
     if hours > 0:
         time_sec += str(hours) + ":"
+        if minutes < 10:
+            time_sec += "0" # avoid 1:1:1.11
+
     if minutes > 0 or hours > 0:
         time_sec += str(minutes) + ":"
+        if seconds < 10:
+            time_sec += "0" # avoid 1:1.11
+            
     time_sec += f"{seconds:.2f}"
 
     return time_sec
