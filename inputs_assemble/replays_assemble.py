@@ -38,7 +38,7 @@ TRY_FASTEST_SPLITS = True
 # Extract the raw inputs from the replays into .txt files
 WRITE_RAW_INPUTS = False
 
-# If you want "realistic respawn", set a time value in ms to add wait between crossing CP and respawn
+# 0 for instant respawn on CP, -1 for respawn like the replay, other time value in ms (like 1000) to add wait between crossing CP and respawn
 WAIT_AFTER_CP_CROSS = 0
 
 # Ignore_cp but for all replays, even if "route" is empty. Main use should be rings
@@ -152,35 +152,23 @@ class Subroute:
 def find_start_end_time(start_cp: int, end_cp: int, cp_times: list[int], commands: CommandList) -> list[int, int]:
     """Find start and end times from which to copy inputs from the replay (before delaying them)"""
     # Find end_time
-    # end_cp None means until the end (finish cp)
-    if end_cp is None:
+    if end_cp is None: # finish cp
         end_cp = len(cp_times)
 
-    # CP0 is 0 but not in the list, so there's a - 1
-    end_time = cp_times[end_cp - 1]
+    end_time = cp_times[end_cp - 1] # CP1 => cp_times[0]
 
-    # Find start_time but if start_cp, use time since start_cp and not last respawn
-    # if start_cp is None:
-    #     # Find previous press enter before end_time
-    #     end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
-    #     start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
-    #     if start_index is None:
-    #         start_time = 0
-    #     else:
-    #         start_time = commands[start_index].timestamp
+    end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
 
-    # elif start_cp == 0:
-    #     start_time = 0
-    
-    # else:
-    #     start_time = cp_times[start_cp - 1]
+    if WAIT_AFTER_CP_CROSS == -1:
+        if end_index is not None: # not end
+            end_time = commands[end_index].timestamp
+            # print(end_time)
     
     # Find start_time
     if start_cp is not None and start_cp == 0:
         start_time = 0
     else:
         # Find previous press enter before end_time
-        end_index = find_command_index(commands, end_time, InputType.RESPAWN, 1)
         start_index = find_previous_index(commands, end_index, InputType.RESPAWN, 1)
         if start_index is None:
             start_time = 0
