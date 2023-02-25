@@ -41,6 +41,8 @@ WRITE_RAW_INPUTS = False
 # If you want "realistic respawn", set a time value in ms to add wait between crossing CP and respawn
 WAIT_AFTER_CP_CROSS = 0
 
+# Ignore_cp but for all replays, even if "route" is empty. Main use should be rings
+IGNORE_CP_ALL_REPLAYS = []
 
 route = []
 # route.append(Split(filename="Snow_Powder_.c2oo..700306.Replay.Gbx", ignore_cp=[2]))
@@ -359,6 +361,11 @@ def main():
         if not os.path.isfile(split.filename):
             print(f"ERROR: {split.filename} does not exist")
             continue
+        
+        # Add common ignore cp, remove duplicates and sort
+        split.ignore_cp = list(set(split.ignore_cp + IGNORE_CP_ALL_REPLAYS))
+        split.ignore_cp.sort()
+        #print(split.ignore_cp)
 
         # Read and store replay info
         if split.filename not in replays:
@@ -378,10 +385,13 @@ def main():
                 # subsplit.update(replay)
                 route_expanded.append(subsplit)
 
+                print(i)
+                print(split.ignore_cp)
                 if i in split.ignore_cp or i in replays[split.filename].cp_not_respawned:
                     # At least 1 replay didn't respawn
                     if i not in global_cp_not_respawned:
                         global_cp_not_respawned.append(i)
+                        print(global_cp_not_respawned)
                 else:
                     last_respawned_cp = i
 
@@ -408,7 +418,8 @@ def main():
         print(f"{split.filename} with CP {cp_str}, time={ms_to_sec(split.duration)}")
 
     # Find out the fastest splits
-    if TRY_FASTEST_SPLITS and len(route) > 1:
+    # Bugfix: must execute even for 1 replay, to apply ignore_cp
+    if TRY_FASTEST_SPLITS:
         global_cp_not_respawned.sort()
         print("")
         print(f"{global_cp_not_respawned=}")
