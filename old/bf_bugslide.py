@@ -1,14 +1,15 @@
-EVAL_TIME_MIN = 40900
-EVAL_TIME_MAX = 41150
+EVAL_TIME_MIN = 7500
+EVAL_TIME_MAX = 7500
+BUGSLIDE = "auto" # "auto"/"left"/"right"
 
-MIN_SPEED_KMH = 450
+MIN_SPEED_KMH = 0
 MIN_CP = 0
-MUST_TOUCH_GROUND = False # True = at least 1 wheel must touch ground
+MIN_WHEELS_ON_GROUND = 0
+#GEAR = 0
 #TRIGGER = [523, 9, 458, 550, 20, 490]
 
 import math
 import numpy
-import struct
 import sys
 
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
@@ -16,10 +17,6 @@ from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 
 class MainClient(Client):
-    def __init__(self) -> None:
-        self.best = -1
-        self.time = -1
-
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
         iface.execute_command('set controller bruteforce')
@@ -29,6 +26,9 @@ class MainClient(Client):
         print(f"Base run time: {self.lowest_time}")
         if not (EVAL_TIME_MIN <= EVAL_TIME_MAX <= self.lowest_time):
             print("ERROR: MUST HAVE 'EVAL_TIME_MIN <= EVAL_TIME_MAX <= REPLAY_TIME'")
+            
+        self.best = -1
+        self.time = -1
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
         self.current_time = info.time
@@ -59,45 +59,39 @@ class MainClient(Client):
         state = iface.get_simulation_state()
 
         # Conditions
-        #x, y, z = state.position
-        #x1, y1, z1, x2, y2, z2 = TRIGGER
-        #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
-        #    return False
-
-        # if state.position[0] > 300:
-        #     return False
-
         if MIN_SPEED_KMH > numpy.linalg.norm(state.velocity) * 3.6:
             return False
 
         if MIN_CP > get_nb_cp(state):
             return False
 
-        if MUST_TOUCH_GROUND and nb_wheels_on_ground(state) == 0:
+        if MIN_WHEELS_ON_GROUND > nb_wheels_on_ground(state):
             return False
+        
+        # if GEAR != state.scene_mobil.engine.gear:
+        #     return False
 
-        car_yaw, car_pitch, car_roll = state.yaw_pitch_roll
+        #x, y, z = state.position
+        #x1, y1, z1, x2, y2, z2 = TRIGGER
+        #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
+        #    return False
 
-        target_yaw = math.atan2(state.velocity[0], state.velocity[2])
-        target_pitch = to_rad(90)
-        target_roll = to_rad(0)
+        car_yaw   = to_deg(state.yaw_pitch_roll[0])
+        car_pitch = to_deg(state.yaw_pitch_roll[1])
+        car_roll  = to_deg(state.yaw_pitch_roll[2])
 
-        # Customize diff_yaw
-        strategy = "any"
+        target_yaw   = to_deg(math.atan2(state.velocity[0], state.velocity[2]))
+        target_pitch = 0
+        target_roll  = 0
+        
+        diff_yaw_left  = abs(car_yaw - (target_yaw + 90))
+        diff_yaw_right = abs(car_yaw - (target_yaw - 90))
 
-        if strategy == "any":
-            # any angle
-            diff_yaw = to_deg(abs(car_yaw - target_yaw))
-            # [-90; 90]° yaw should be good enough to nosebug, so 100° should only be considered 10° away in the formula
-            diff_yaw = max(diff_yaw - 90, 0)
+        if   BUGSLIDE == "left":  diff_yaw = diff_yaw_left
+        elif BUGSLIDE == "right": diff_yaw = diff_yaw_right
+        else:                     diff_yaw = min(diff_yaw_left, diff_yaw_right)
 
-        else:
-            # define the yaw angle you want in degrees, from -90 to -90
-            extra_yaw = 0
-            target_yaw += to_rad(extra_yaw)
-            diff_yaw = to_deg(abs(car_yaw - target_yaw))
-
-        self.current = diff_yaw + to_deg(abs(car_pitch - target_pitch)) + to_deg(abs(car_roll - target_roll))
+        self.current = diff_yaw + abs(car_pitch - target_pitch) + abs(car_roll - target_roll)
 
         return self.best == -1 or self.current < self.best
 

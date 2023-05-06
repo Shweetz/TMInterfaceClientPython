@@ -1,10 +1,14 @@
-EVAL_TIME_MIN = 43150
-EVAL_TIME_MAX = EVAL_TIME_MIN
+EVAL_TIME_MIN = 40900
+EVAL_TIME_MAX = 41150
 
+MIN_SPEED_KMH = 450
 MIN_CP = 0
+MUST_TOUCH_GROUND = False # True = at least 1 wheel must touch ground
+#TRIGGER = [523, 9, 458, 550, 20, 490]
 
 import math
 import numpy
+import struct
 import sys
 
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
@@ -54,18 +58,55 @@ class MainClient(Client):
     def is_better(self, iface):
         state = iface.get_simulation_state()
 
-        pos_x, pos_y, pos_z = state.position
-        vel_x, vel_y, vel_z = state.velocity
-        yaw_rad, pitch_rad, roll_rad = state.yaw_pitch_roll
-        speed_kmh = numpy.linalg.norm(state.velocity) * 3.6
+        # Conditions
+        #x, y, z = state.position
+        #x1, y1, z1, x2, y2, z2 = TRIGGER
+        #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
+        #    return False
+
+        # if state.position[0] > 300:
+        #     return False
+
+        if MIN_SPEED_KMH > numpy.linalg.norm(state.velocity) * 3.6:
+            return False
 
         if MIN_CP > get_nb_cp(state):
             return False
 
-        self.current = speed_kmh
-        #self.current = ((vel_x ** 2 + vel_z ** 2) ** 0.5) * 3.6
+        if MUST_TOUCH_GROUND and nb_wheels_on_ground(state) == 0:
+            return False
+        
+        # if state.scene_mobil.engine.gear != 3:
+        #     return False
+		
+        # gear = struct.unpack('i', state.scene_mobil[1480:1484])[0]
+        # if gear != 3:
+        #     return False
 
-        return self.best == -1 or self.current > self.best
+        car_yaw, car_pitch, car_roll = state.yaw_pitch_roll
+
+        target_yaw = math.atan2(state.velocity[0], state.velocity[2])
+        target_pitch = to_rad(90)
+        target_roll = to_rad(0)
+
+        # Customize diff_yaw
+        strategy = "any"
+
+        if strategy == "any":
+            # any angle
+            diff_yaw = to_deg(abs(car_yaw - target_yaw))
+            # [-90; 90]° yaw should be good enough to nosebug, so 100° should only be considered 10° away in the formula
+            diff_yaw = max(diff_yaw - 90, 0)
+
+        else:
+            # define the yaw angle you want in degrees, from -90 to -90
+            extra_yaw = 0
+            target_yaw += to_rad(extra_yaw)
+            diff_yaw = to_deg(abs(car_yaw - target_yaw))
+
+        self.current = diff_yaw + to_deg(abs(car_pitch - target_pitch)) + to_deg(abs(car_roll - target_roll))
+
+        return self.best == -1 or self.current < self.best
 
     def is_eval_time(self):
         return EVAL_TIME_MIN <= self.current_time <= EVAL_TIME_MAX
@@ -76,8 +117,22 @@ class MainClient(Client):
     def is_max_time(self):
         return EVAL_TIME_MAX == self.current_time
 
+def to_rad(deg):
+    return deg / 180 * math.pi
+
+def to_deg(rad):
+    return rad * 180 / math.pi
+
 def get_nb_cp(state):
     return len([cp_time.time for cp_time in state.cp_data.cp_times if cp_time.time != -1])
+
+def nb_wheels_on_ground(state):
+    number = 0
+    for wheel in state.simulation_wheels:
+        if wheel.real_time_state.has_ground_contact:
+            number += 1
+
+    return number
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
