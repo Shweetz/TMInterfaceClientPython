@@ -8,21 +8,21 @@ import time
 import math
 
 ##### BF settings
-# Time frame from 90000 to 95090 (54090 steer -65536)
+### Target
+# "manual" for hardcoded values, "timestamp" to copy values at a timestamp
+target = "manual"
 
-target = 54250
-# x = 582.421
-# y = 87.781
-# z = 522.255
-# velx = -152.335
-# vely = 38.378
-# velz = -4.099
-# aimx = 0.999
-# aimy = -0.033
-# aimz = -0.023
+# For target "manual"
+target_position = [582.421, 87.781, 522.255]
+target_velocity = [-152.335, 38.378, -4.099]
+target_aim_dire = [0.999, -0.033, -0.023]
 
-eval_time_min = 95100
-eval_time_max = 95300
+# For target "timestamp"
+target_timestamp = 54250
+
+### eval
+eval_time_min = 25500
+eval_time_max = 25500
         
 def compute_dist_2_points(pos1, pos2):
     return math.sqrt((pos2[0]-pos1[0]) ** 2 + (pos2[1]-pos1[1]) ** 2 + (pos2[2]-pos1[2]) ** 2)
@@ -34,14 +34,14 @@ def compute_aim_2_points(pos1, pos2):
     return (pos2[0]-pos1[0]) ** 2 + (pos2[1]-pos1[1]) ** 2 + (pos2[2]-pos1[2]) ** 2
     
 def compute_dist_speed_aim(pos_diff, speed_diff, aim_diff):
-    return pos_diff*5 + speed_diff*10 + aim_diff*100
+    return pos_diff + speed_diff + aim_diff*1000
 
 class MainClient(Client):
     def __init__(self) -> None:
-        self.position_optimized = [582.421, 87.781, 522.255]
-        self.velocity_optimized = [-152.335, 38.378, -4.099]
-        self.aim_dire_optimized = [0.999, -0.033, -0.023]
-        self.lowest = 10000000
+        self.position_optimized = target_position
+        self.velocity_optimized = target_velocity
+        self.aim_dire_optimized = target_aim_dire
+        self.lowest = -1
         self.do_accept = False
         self.phase = BFPhase.INITIAL
 
@@ -55,7 +55,7 @@ class MainClient(Client):
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
         # print("bf")
-        self.current_time = info.time - 2610
+        self.current_time = info.time
         self.phase = info.phase
 
         response = BFEvaluationResponse()
@@ -65,9 +65,9 @@ class MainClient(Client):
         
         if self.phase == BFPhase.INITIAL:
             if self.current_time == target:
-                self.position_optimized = state.get_position()
-                self.velocity_optimized = state.get_velocity()
-                self.aim_dire_optimized = state.get_aim_direction()
+                self.position_optimized = state.position
+                self.velocity_optimized = state.velocity
+                self.aim_dire_optimized = state.yaw_pitch_roll
                 response.decision = BFEvaluationDecision.CONTINUE
         
         else:
@@ -75,12 +75,12 @@ class MainClient(Client):
                 pass
                 
             elif self.current_time <= eval_time_max:
-                pos_diff = compute_dist_2_points(self.position_optimized, state.get_position())
-                vel_diff = compute_vel_2_points(self.velocity_optimized, state.get_velocity())
-                aim_diff = compute_aim_2_points(self.aim_dire_optimized, state.get_aim_direction())
+                pos_diff = compute_dist_2_points(self.position_optimized, state.position)
+                vel_diff = compute_vel_2_points(self.velocity_optimized, state.velocity)
+                aim_diff = compute_aim_2_points(self.aim_dire_optimized, state.yaw_pitch_roll)
                 self.current = compute_dist_speed_aim(pos_diff, vel_diff, aim_diff)
                 
-                if self.current < self.lowest:
+                if self.current < self.lowest or self.lowest == -1:
                     self.lowest = self.current
                     self.do_accept = True
                     self.pos_diff = pos_diff

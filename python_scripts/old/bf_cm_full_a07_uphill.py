@@ -1,77 +1,132 @@
+
+from dataclasses import dataclass
+from enum import IntEnum, Enum
 import math
+import numpy
 import os
 import random
 import struct
 import sys
 import time
+import pickle
 
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME, BINARY_RESPAWN_NAME
-from tminterface.eventbuffer import EventBufferData
-from tminterface.commandlist import CommandList, InputCommand, InputType
+#from commandlist import CommandList, InputCommand, InputType
+# import load_state
 
-from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
-from save_load_state import save_state, load_state
+class Input(Enum):
+    UP = BINARY_ACCELERATE_NAME
+    DOWN = BINARY_BRAKE_NAME
+    STEER = ANALOG_STEER_NAME
+
+class ChangeType(IntEnum):
+    STEER_DIFF = 0
+    TIMING = 1
+    AVG_REBRUTE = 2
+     # TODO CREATE_REMOVE = 2
+
+@dataclass
+class Change:
+    input : str
+    change_type : ChangeType
+    proba : float
+    start_time : int
+    end_time : int
+    diff : int
+
+    def __str__(self):
+        return f"rule: From {self.start_time} to {self.end_time}ms, change {self.change_type.name} for {self.input} with max diff of {self.diff} and modify_prob={self.proba}"
+
+class Eval(IntEnum):
+    """Eval time: CP if optimizing CP, else use a shorter time frame for slightly faster bf"""
+    TIME = 0
+    CP = 1
+
+class Optimize(IntEnum):
+    """What to optimize for"""
+    CUSTOM = 0
+    TIME = 1
+    DISTANCE = 2
+    VELOCITY = 3
+    DIST_VELO = 4
 
 """START OF PARAMETERS (you can change here)"""
 rules = []
+# Examples
+# rules.append(Change(0.02, 10000, 12000, Input.UP, ChangeType.TIMING, 50))
+# rules.append(Change(0.1, 0, 100, Input.DOWN, ChangeType.CREATE_REMOVE, 0))
+# rules.append(Change(Input.STEER, ChangeType.STEER_DIFF,     proba=0.01, start_time=40000, end_time=42880, diff=65536))
 
-proba = 0.01
-start = "17.00"
-end   = "4.00"
-end   = "22.00"
+# A-0
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,     proba=1, start_time=0, end_time=4390, diff=100))
 
-rules.append(Rule(Input.STEER, Change.STEER_, proba=proba, start_time=start, end_time=end, diff=65536))
-# rules.append(Rule(Input.UP___, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
-rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
-# rules.append(Rule(Input.STEER, Change.TIMING, proba=proba, start_time=start, end_time=end, diff=50))
+# A07
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.02,   start_time=22600, end_time=26160, diff=15000))
+
+# TODO
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.AVG_REBRUTE, proba=0, start_time=4000, end_time=8000, diff=5000))
+
+# Decimation CP 41 10:16.25
+# Cette règle fait que tes steer changent en steer + ou -
+rules.append(Change(Input.STEER, ChangeType.STEER_DIFF,  proba=0.01, start_time=19180, end_time=21000, diff=65536))
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF,  proba=0.02, start_time=708500, end_time=714600, diff=65536))
+
+# Cette règle fait que tes steer changent de timing (comme TMI)
+# rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING,      proba=0, start_time=613000, end_time=617000, diff=50))
+
+# Cette règle fait que tes press up/down changent de timing (comme TMI)
+# rules.append(Change(Input.UP, ChangeType.TIMING, proba=0.05, start_time=14520, end_time=18500, diff=20))
+# rules.append(Change(Input.DOWN, ChangeType.TIMING, proba=0.0, start_time=19180, end_time=21000, diff=10))
 
 FILL_INPUTS = True
 LOCK_BASE_RUN = False
 LOAD_INPUTS_FROM_FILE = False
-SAVE_REPLAY_FROM_STATE = False
-LOAD_REPLAY_FROM_STATE = ""
-# LOAD_REPLAY_FROM_STATE = "simu_state_766490.bin"
-# LOAD_REPLAY_FROM_STATE = "simu_state_1041290.bin"
+LOAD_REPLAY_FROM_STATE = False
+# PRECISION = 0.000001
 
 # steer_cap_accept = True
-p = 0
-steer_equal_last_input_proba = p # proba to make a steer equal to last steer
-steer_zero_proba = p # proba to set steer to 0 instead of changing direction left/right
-steer_full_proba = p # proba to steer full left/right or no steer, whichever is closest
+steer_equal_last_input_proba = 0.3 # proba to make a steer equal to last steer
+steer_zero_proba = 0 # proba to set steer to 0 instead of changing direction left/right
+#steer_full_proba = 0.3
 
 # From previous script
-eval = Eval.CP
-parameter = Optimize.TIME
+eval = Eval.TIME
+parameter = Optimize.CUSTOM
 
-TIME = end
-# TIME = "10.30"
-TIME_MIN = int(sec_to_ms(TIME))
-TIME_MAX = int(sec_to_ms(TIME))
+TIME_MIN = 22000
+TIME_MAX = TIME_MIN
 
 # eval == Eval.CP:
-CP_NUMBER = 2
+CP_NUMBER = 48
 
 # parameter == Optimize.DISTANCE:
-POINT_POS = [484, 32, 685]
+POINT_POS = [497, 25, 80]
 
 # Min diff to consider an improvement worthy
 min_diff = 0
 """END OF PARAMETERS"""
 
-for rule in rules:
-    rule.init()
+# Files stuff
+
+class Phase(IntEnum):
+    WAITING_GAME_FINISH = 0
+    ESTIMATING_PRECISE_FINISH = 1
+
+# class IterationState(IntEnum):
+#     FASTER = 0
+#     SLOWER = 1
+#     TIED = 2
+#     FASTER_ESTIMATING = 3
 
 lowest_poss_change = min([c.start_time for c in rules])
 highest_poss_change = max([c.end_time for c in rules])
 
-if not lowest_poss_change <= highest_poss_change:
-    print("ERROR: MUST HAVE 'lowest_poss_change <= highest_poss_change'")
-
 
 class MainClient(Client):
     def __init__(self) -> None:
+        self.phase = Phase.WAITING_GAME_FINISH
         self.best_precise_time = -1
         self.finished = False
         self.state_min_change = None
@@ -94,32 +149,29 @@ class MainClient(Client):
             print(rule)
 
     def on_simulation_begin(self, iface):
-        # print("on_simulation_begin start")
         iface.remove_state_validation()
-
-        self.begin_buffer = iface.get_event_buffer()
-        self.lowest_time = self.begin_buffer.events_duration
-
-        if eval == Eval.TIME:
-            if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
-                print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
 
         # Fill begin_buffer
         self.begin_buffer = iface.get_event_buffer()
         if LOAD_INPUTS_FROM_FILE:
-            self.pre_rewind_buffer = EventBufferData(self.lowest_time)
-            self.pre_rewind_buffer.control_names = self.begin_buffer.control_names
+            self.pre_rewind_buffer = iface.get_event_buffer()
             self.load_inputs_from_file()
             # iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER
         if FILL_INPUTS:
-            self.fill_inputs(lowest_poss_change, highest_poss_change)
+            self.fill_inputs(lowest_poss_change, 0)
 
-        self.current_buffer = EventBufferData(self.lowest_time)
-        self.current_buffer.control_names = self.begin_buffer.control_names
-        # self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
+        self.lowest_time = self.begin_buffer.events_duration
+
+        self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.begin_buffer.to_commands_str())
-            
-        # print("on_simulation_begin end")
+
+        # Load state
+        if LOAD_REPLAY_FROM_STATE:
+            file_name = "../States/state.bin"
+            self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+            # self.state_min_change = load_state.load_state(self.state_file)
+            self.state_min_change = pickle.load(open(self.state_file, "rb"))
+            iface.rewind_to_state(self.state_min_change)
         
     def fill_inputs(self, start_fill=0, end_fill=0):
         """Fill inputs between start_fill and end_fill included"""
@@ -128,7 +180,7 @@ class MainClient(Client):
         
         # print(f"fill_inputs(self, {start_fill}, {end_fill})")
         # Find start steering (if start fill_inputs not on a steering change)
-        if LOAD_INPUTS_FROM_FILE:
+        if LOAD_INPUTS_FROM_FILE:            
             buffer = self.pre_rewind_buffer
         else:
             buffer = self.begin_buffer
@@ -150,46 +202,31 @@ class MainClient(Client):
             else:
                 self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
         
-    def on_simulation_step(self, iface: TMInterface, _time: int):        
-        # print("on_simulation_step start")
+    def on_simulation_step(self, iface: TMInterface, _time: int):
         self.race_time = _time
         if not self.state_min_change:
-            if _time == 100 and LOAD_REPLAY_FROM_STATE:
-                self.load_replay_from_state(iface, LOAD_REPLAY_FROM_STATE)
-
-            if LOAD_INPUTS_FROM_FILE and not LOAD_REPLAY_FROM_STATE:
+            if LOAD_INPUTS_FROM_FILE:
                 if self.race_time % 10000 == 0:
                     sys.stdout.write(f"\rSimulating base run... {int(self.race_time/1000)}sec")
                     sys.stdout.flush()
-                if self.race_time == lowest_poss_change - 10:
-                    print()
-                    print(f"Simulation done")
-                    
-                    # This line sets base run as the inputs file instead of the replay
-                    # iface.set_event_buffer(self.begin_buffer)
-            else:
-                # When loading inputs from a long replay, we can't load them all at the start because TMI timeout
-                # So we load the inputs when they happen -> doesn't work with simu save state
-                # events_at_time = self.begin_buffer.find(time=self.race_time)
-                # for event in events_at_time:
-                #     add_events_in_buffer(events_at_time, self.current_buffer)
-                pass
+                # if self.race_time == self.lowest_time:
+                #     print()
 
-            if self.race_time == lowest_poss_change - 10:
+            if self.race_time == lowest_poss_change:
                 # Store state to rewind to for every iteration, for now it is earliest possible input change
-                # lowest_poss_change-10 because state contains inputs and we don't update state with 1st input
+                # lowest_poss_change-10 because 1 tick is needed to apply inputs in physics?
                 self.state_min_change = iface.get_simulation_state()
 
-                print(f"self.state_min_change created at {ms_to_sec(self.race_time)}")
+                if LOAD_INPUTS_FROM_FILE:
+                    print()
+                    print(f"Simulation done: save state created at {self.race_time} ms")
+                    
+                    # This line sets base run as the inputs file instead of the replay
+                    iface.set_event_buffer(self.begin_buffer)
 
-                if SAVE_REPLAY_FROM_STATE:
-                    # Save state so it can be loaded in a later bf
-                    file_name = f"simu_state_{self.race_time}.bin"
-                    self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + file_name
-                    # erase old file if exists
-                    # if not os.path.isfile(self.state_file):
-                    save_state(self.state_min_change, self.state_file)
-                    print(f"self.state_min_change saved in {self.state_file}")
+                # file_name = "../States/state.bin"
+                # self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+                # pickle.dump(self.state_min_change, open(self.state_file, "wb"))
 
         if self.is_eval_time():
             # print("eval_time")
@@ -220,7 +257,6 @@ class MainClient(Client):
     def condition(self):
         """Returns False if conditions are not met so run is rejected"""
         return True
-        return abs(self.car.pitch_rad) < 1.507 and self.car.y > 56 # not turtled
         return self.car.y > 48
         
     def is_better(self, state):
@@ -255,38 +291,12 @@ class MainClient(Client):
         #     car = self.car
 
         # self.car.custom = abs(car.pitch_deg - 90)
-        # self.car.custom = self.car.z + self.car.y * 1
-        # self.car.custom = -self.car.x
+        self.car.custom = -self.car.x
+        self.car.custom = -self.car.z + self.car.get_speed("xyz")
+        # self.car.custom = self.car.get_speed("xyz")
         # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
-        # self.car.custom = self.car.get_speed("xz")
+        # self.car.custom = self.car.get_speed("xyz")
         
-        dist = get_dist_2_points(POINT_POS, self.car.position, "xyz")
-        speed = self.car.get_speed("xz")
-        
-        # condition
-        if not 000 < self.car.x < 300:
-            return False
-        # if not  25 < self.car.y:
-        #     return False
-        # if not self.car.z < 156:
-        #     return False
-        # if not self.car.vel_z < 0:
-        #     return False
-        # if not self.cp_count >= 9:
-        #     return False
-        # if not -1.1 < self.car.yaw_rad < -1:
-        #     return False
-        
-        # 10.30
-        cx = -1
-        cz = 0
-        cspeed = 30
-        x = self.car.x + self.car.vel_x*cspeed
-        z = self.car.z + self.car.vel_z*cspeed
-        self.car.custom = x*cx + z*cz
-
-        self.car.custom = speed
-
         if base_run:
             print(f"Base run custom = {self.car.custom}")
             return True
@@ -317,17 +327,13 @@ class MainClient(Client):
 
     def is_custom3(self, base_run, min_diff=0):
         """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""        
-        # condition
-        # if not self.car.x < 600:
-        #     return False
-
         # Goal 1: max car.y until car.y > 49
         # Goal 2: min car.x until car.x < 414
         # Goal 3: min time
         goals = []
-        goals.append(Goal("z", MinMax.MIN, 160))
-        goals.append(Goal("x", MinMax.MIN, 585))
-        goals.append(Goal("_time", MinMax.MIN, 0))
+        goals.append(Goal("y", True,  48.5))
+        goals.append(Goal("x", False, 414))
+        goals.append(Goal("_time", False, 0))
 
         if base_run:
             for goal in goals:
@@ -349,48 +355,6 @@ class MainClient(Client):
                     
         return False
         
-    def is_custom4(self, base_run, min_diff=0):
-        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-
-        # condition
-        # condition
-        if not 940 < self.car.x < 1030:
-            return False
-        if not  35 < self.car.y < 50:
-            return False
-        # if not self.car.z < 750:
-        #     return False
-        if not self.cp_count >= 5:
-            return False
-        # if not self.car.vel_z < 0:
-        #     return False
-        # if not 200 < self.car.speed_kmh:
-        #     return False
-
-        slope_pitch = -0.1
-        slope_roll = 0.2
-
-        target_yaw = math.atan2(self.car.vel_x, self.car.vel_z) * 180/math.pi
-        target_pitch = (math.pi/2 + math.cos(self.car.yaw_rad) * slope_pitch - math.sin(self.car.yaw_rad) * slope_roll) * 180/math.pi
-        target_roll = (math.sin(self.car.yaw_rad) * slope_pitch + math.cos(self.car.yaw_rad) * slope_roll) * 180/math.pi
-        # target_pitch = 90
-        # target_roll = 0
-
-        # self.current = self.car.speed_kmh - self.car.y - abs(self.car.pitch_deg - 90) - abs(self.car.roll_deg) - abs(self.car.yaw_deg - )
-        self.car.custom = abs(self.car.yaw_deg - target_yaw) + abs(self.car.pitch_deg - target_pitch) + abs(self.car.roll_deg - target_roll)
-        # if self.best == -1:
-        #     return True
-        # return self.current < self.best
-
-        if base_run:
-            print(f"Base run custom = {self.car.custom}")
-            return True
-        elif self.car.custom < self.best_car.custom + min_diff:
-            print(f"Improved custom = {self.car.custom}")
-            return True
-
-        return False
-        
     def is_earlier(self, base_run, min_diff=0):
         # if base_run:
         #     car = self.best_car
@@ -402,10 +366,10 @@ class MainClient(Client):
         #     return True
         
         if base_run:
-            print(f"Base run time = {ms_to_sec(self.car._time - 10)}")
+            print(f"Base run time = {self.car._time - 10} ms")
             return True
         elif self.car._time < self.best_car._time - min_diff:
-            print(f"Improved time = {ms_to_sec(self.car._time - 10)}")
+            print(f"Improved time = {self.car._time - 10} ms")
             return True
         
         return False
@@ -419,10 +383,10 @@ class MainClient(Client):
         self.car.distance = get_dist_2_points(POINT_POS, self.car.position, axis)
         
         if base_run:
-            print(f"Base run distance = {math.sqrt(self.car.distance)} m")
+            print(f"Base run distance = {math.sqrt(self.car.distance)}m")
             return True
         elif self.car.distance < self.best_car.distance - min_diff:
-            print(f"Improved distance = {math.sqrt(self.car.distance)} m")
+            print(f"Improved distance = {math.sqrt(self.car.distance)}m")
             return True
         
         return False
@@ -490,22 +454,16 @@ class MainClient(Client):
         
         # Restore events from base run (self.begin_buffer.events) in self.current_buffer.events using deepcopy
         self.current_buffer.clear()
-        add_events_in_buffer(self.begin_buffer.events, self.current_buffer)
-        # for event in self.begin_buffer.events:
-        #     event_time = event.time - 100010
-        #     event_name = self.begin_buffer.control_names[event.name_index]
-        #     event_value = event.analog_value if "analog" in event_name else event.binary_value
-        #     self.current_buffer.add(event_time, event_name, event_value)
+        for event in self.begin_buffer.events:
+            event_time = event.time - 100010
+            # if event_time >= lowest_poss_change:
+            event_name = self.begin_buffer.control_names[event.name_index]
+            event_value = event.analog_value if "analog" in event_name else event.binary_value
+            self.current_buffer.add(event_time, event_name, event_value)
 
         # Apply rules to self.current_buffer.events
         for rule in rules:
             # only inputs that match the rule (ex: steer)
-            # try:
-            #     print(rule.input)
-            #     print(rule.input.name)
-            #     print(rule.input.value)
-            # except:
-            #     pass
             events = self.current_buffer.find(event_name=rule.input.value)
             last_steer = 0
             for event in events:
@@ -515,39 +473,26 @@ class MainClient(Client):
                     # event proba
                     if random.random() < rule.proba:
                         # event type
-                        if rule.change_type == Change.STEER_:
-                            if random.random() < steer_full_proba and FILL_INPUTS:
-                                # if event.analog_value < -65536 / 2: event.analog_value = -65536
-                                # if event.analog_value >  65536 / 2: event.analog_value =  65536
-                                # else:                               event.analog_value = 0
+                        if rule.change_type == ChangeType.STEER_DIFF:
+                            if random.random() < steer_equal_last_input_proba:
                                 event.analog_value = last_steer
-
                             else:
                                 new_steer = event.analog_value + random.randint(-rule.diff, rule.diff)
                                 # if diff makes steer change direction (left/right), try 0
-                                if random.random() < steer_zero_proba:
-                                    if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value):
-                                        event.analog_value = 0
-                                    else:
-                                        event.analog_value = new_steer
+                                if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value) and random.random() < steer_zero_proba:
+                                    event.analog_value = 0
                                 else:
                                     event.analog_value = new_steer
-
                                 event.analog_value = min(event.analog_value, 65536)
                                 event.analog_value = max(event.analog_value, -65536)
                                 
-                        if rule.change_type == Change.TIMING:
+                        if rule.change_type == ChangeType.TIMING:
                             # ms -> 0.01
                             diff = random.randint(-rule.diff/10, rule.diff/10)
                             # 0.01 -> ms
                             event.time += diff*10
 
-                        if rule.change_type == Change.CREATE:
-                            if rule.input == InputType.UP:
-                                # is up currently pressed or not?
-                                pass
-
-                if rule.input.value == "Steer (analog)":
+                if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
                     last_steer = event.analog_value
         
     def save_result(self, time_found="", file_name="result.txt"):
@@ -562,8 +507,6 @@ class MainClient(Client):
                     # print inputs before inputs_min_time
                     f.write(self.pre_rewind_buffer.to_commands_str())
             f.write(self.current_buffer.to_commands_str())
-            f.write(f"0 set speed 50\n")
-            f.write(f"16.0 set speed 1\n")
 
     def load_inputs_from_file(self, file_name="inputs.txt"):
         # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
@@ -575,49 +518,25 @@ class MainClient(Client):
         commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
 
         for command in commands:
-            if   command.input_type == InputType.UP:      command.input = BINARY_ACCELERATE_NAME
-            elif command.input_type == InputType.DOWN:    command.input = BINARY_BRAKE_NAME
-            elif command.input_type == InputType.LEFT:    command.input = BINARY_LEFT_NAME
-            elif command.input_type == InputType.RIGHT:   command.input = BINARY_RIGHT_NAME
+            if   command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
+            elif command.input_type == InputType.DOWN: command.input = BINARY_BRAKE_NAME
+            elif command.input_type == InputType.LEFT: command.input = BINARY_LEFT_NAME
+            elif command.input_type == InputType.RIGHT: command.input = BINARY_RIGHT_NAME
             elif command.input_type == InputType.RESPAWN: command.input = BINARY_RESPAWN_NAME
-            elif command.input_type == InputType.STEER:   command.input = ANALOG_STEER_NAME
+            elif command.input_type == InputType.STEER: command.input = ANALOG_STEER_NAME
             else: print(f"{command.input_type=}"); continue
 
             if command.timestamp < lowest_poss_change:
                 self.pre_rewind_buffer.add(command.timestamp, command.input, command.state)
             else:
                 self.begin_buffer.add(command.timestamp, command.input, command.state)
-
-    def load_replay_from_state(self, iface, file_name=""):
-        """
-        Check files in States/
-        Pick the latest one which time < lowest_poss_change
-        """
-        # states_dir = os.path.expanduser('~/Documents') + "/TMInterface/States/"
-        # if not file_name:
-        #     files = sorted(glob.glob(states_dir+"*"), key=lambda t: -os.stat(t).st_mtime)
-        #     while files:
-        #         basename = os.path.basename(files[0])
-        #         if "simu_state_" in basename:
-        #             state_time = int(basename.split("simu_state_")[1].split(".")[0])
-        #             if state_time <= lowest_poss_change:
-        #                 file_name = basename
-        #                 break
-        #         files.pop()
-        
-        if not file_name:
-            print("No simu_state file suitable to load")
-        else:
-            print(f"Loading {file_name}")
-            self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + file_name
-            # self.state_min_change = load_state(self.state_file)
-            iface.rewind_to_state(load_state(self.state_file))
-            
-            # update self.race_time with time from simu state
-            self.race_time = iface.get_simulation_state().time - 2610
-
-            if lowest_poss_change - 10 < self.race_time:
-                print("ERROR: simu save_state time must be at least 1 tick before lowest_poss_change")
+        # for event_time in range(start_fill, end_fill+10, 10):
+        #     events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+        #     if len(events_at_time) > 0:
+        #         curr_steer = events_at_time[-1].analog_value
+        #     else:
+        #         self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
+        # return 
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         self.cp_count = current
@@ -653,6 +572,98 @@ class MainClient(Client):
         state.dyna[536:540] = list(struct.pack('f', angular_velocity[0]))
         state.dyna[540:544] = list(struct.pack('f', angular_velocity[1]))
         state.dyna[544:548] = list(struct.pack('f', angular_velocity[2]))
+
+def get_dist_2_points(pos1, pos2, axis="xyz"):
+    dist = 0
+    if "x" in axis:
+        dist += (pos2[0]-pos1[0]) ** 2
+    if "y" in axis:
+        dist += (pos2[1]-pos1[1]) ** 2
+    if "z" in axis:
+        dist += (pos2[2]-pos1[2]) ** 2
+    return dist
+
+@dataclass
+class Car():
+    _time : int
+
+    def update(self, state):
+        self.state = state
+        
+        self.position = state.position
+        self.x, self.y, self.z = state.position
+        self.yaw_rad, self.pitch_rad, self.roll_rad = state.yaw_pitch_roll
+        self.vel_x, self.vel_y, self.vel_z = state.velocity
+        self.speed_mph = numpy.linalg.norm(state.velocity) # if > 1000/3.6?
+
+        self.yaw_deg   = self.yaw_rad   * 180 / math.pi
+        self.pitch_deg = self.pitch_rad * 180 / math.pi
+        self.roll_deg  = self.roll_rad  * 180 / math.pi
+        self.speed_kmh = self.speed_mph * 3.6 # if > 1000?
+
+        self.stunts_score = int.from_bytes(state.player_info[724:724+4], byteorder='little')
+        if self.stunts_score > 1000000:
+            self.stunts_score = 0
+
+    def get_speed(self, axis="xz"):
+        return self.get_vel(axis) * 3.6
+
+    def get_vel(self, axis="xz"):
+        ret = 0
+        if "x" in axis:
+            ret += self.vel_x ** 2
+        if "y" in axis:
+            ret += self.vel_y ** 2
+        if "z" in axis:
+            ret += self.vel_z ** 2
+        return ret ** 0.5
+
+    # def has_at_least_1_wheel_in_air(self):
+    #     wheel_size = SIMULATION_WHEELS_SIZE // 4
+        
+    #     for i in range(4):
+    #         current_offset = wheel_size * i
+    #         hasgroundcontact = struct.unpack('i', self.state.simulation_wheels[current_offset+292:current_offset+296])[0]
+    #         if hasgroundcontact == 0:
+    #             return True
+
+    #     return False
+    
+    # def is_above_diag(self, diag_slope, diag_offset):
+    #     diag_x = (self.z*diag_slope) + diag_offset
+    #     if self.x > diag_x:
+    #         return "above"
+        
+    #     return "below"
+
+@dataclass
+class Goal():
+    variable : str
+    should_max : bool
+    accept : int
+
+    def achieved(self, car):
+        """
+        Checks if goal is achieved. Examples: 
+        Goal('x', True, 50)        is achieved if car.x > 50
+        Goal('_time', False, 4390) is achieved if car._time < 4390
+        """
+        if self.should_max:
+            if getattr(car, self.variable) > self.accept:
+                return True
+        else:
+            if getattr(car, self.variable) < self.accept:
+                return True
+        return False
+    
+    def closer(self, car, best_car, min_diff=0):
+        if self.should_max:
+            if getattr(car, self.variable) > getattr(best_car, self.variable) + min_diff:
+                return True
+        else:
+            if getattr(car, self.variable) < getattr(best_car, self.variable) - min_diff:
+                return True
+        return False
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'

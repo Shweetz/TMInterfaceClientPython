@@ -200,6 +200,7 @@ def main():
         print('No provided file!')
         quit()
 
+    print(sys.argv[1])
     path = sys.argv[1]
     if os.path.isdir(path):
         for root, _, files in os.walk(path):
@@ -207,12 +208,14 @@ def main():
                 lower = filename.lower()
                 if lower.endswith('.gbx'):
                     out_fname = strip_all(lower, ['.replay.gbx', '.gbx', '\'', '\"', ' ', '$']) + '.txt'
+                    print(out_fname)
                     with open(out_fname, 'w+') as f:
                         process_path(os.path.join(root, filename), f.write)
     else:
         lower = os.path.basename(path).lower()
         if lower.endswith('.gbx'):
             out_fname = strip_all(lower, ['.replay.gbx', '.gbx', '\'', '\"', ' ', '$']) + '.txt'
+            print(out_fname)
             with open(out_fname, 'w+') as f:
                 process_path(path, f.write)
 

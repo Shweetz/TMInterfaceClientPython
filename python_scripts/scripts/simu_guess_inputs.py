@@ -30,9 +30,9 @@ UP = BINARY_ACCELERATE_NAME
 FORMAT_DECIMAL = True
 
 MAX_TIME = 190000
-REPLAY_NAME = r"C:\Users\rmnlm\Documents\Trackmania\Tracks\Replays\2022-06-17-18-40-45_A06_almost_uber.Replay.Gbx"
+REPLAY_NAME = r"C:\Users\rmnlm\Documents\Trackmania\Tracks\Replays\2022-02-27-13-59-24_Temp_Short-022.Replay.Gbx"
 INPUTS_NAME = "guessed_inputs.txt"
-CLEAR_INPUTS = False
+CLEAR_INPUTS = True
 NB_TICKS = 9
 
 # class State():
@@ -93,6 +93,7 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        iface.execute_command('set controller none')
         self.ghost = Ghost(REPLAY_NAME)
         # self.lowest_time = (len(self.ghost.records) - 1) * 100
 
@@ -127,6 +128,7 @@ class MainClient(Client):
             # print(os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + INPUTS_NAME)
             # sys.exit()
 
+        # Load from file to clear the replay validated inputs (even if CLEAR_INPUTS)
         self.load_inputs_from_file(INPUTS_NAME)
         iface.set_event_buffer(self.current_buffer)
 
@@ -268,9 +270,10 @@ class MainClient(Client):
         """
         Stategy to change 1 input:
         Direction first (10 + 10 iterations):
-            - if going straight, try going left, then try going right
-            - if going left, try going straight, then try going right
-            - if going right, try going straight, then try going left
+            - < current state >, <dir change 1>    , <dir change 2>
+            - if going straight, try going left    , then try going right
+            - if going left    , try going straight, then try going right
+            - if going right   , try going straight, then try going left
         Then try down (toggle on/off, 10 iterations)
         Then try up   (toggle on/off, 10 iterations)
 

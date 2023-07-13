@@ -1,14 +1,14 @@
+import math
+
 EVAL_TIME_MIN = 26000
 EVAL_TIME_MAX = 26000
-NEXT_EVAL = "time" # "none"/"speed"/"point"/"time"
-#POINT = [523, 9, 458]
-GOOD_NOSEPOS_DEG = 10
 
 MIN_SPEED_KMH = 0
 MIN_CP = 0
 MIN_WHEELS_ON_GROUND = 0
 #GEAR = 0
-#TRIGGER = [523, 9, 458, 550, 20, 490]
+TRIGGER = [523, 9, 458, 550, 20, 490]
+TRIGGER_ANGLE = 45
 
 import math
 import numpy
@@ -21,7 +21,6 @@ from tminterface.client import Client, run_client
 class CarState():
     def __init__(self) -> None:
         self.time = -1
-        self.angle = -1
         self.distance = -1
         self.speed = -1
 
@@ -35,12 +34,8 @@ class MainClient(Client):
         print(f"Base run time: {self.lowest_time}")
         if not (EVAL_TIME_MIN <= EVAL_TIME_MAX <= self.lowest_time):
             print("ERROR: MUST HAVE 'EVAL_TIME_MIN <= EVAL_TIME_MAX <= REPLAY_TIME'")
-        
-        if NEXT_EVAL != "point":
-            global POINT
-            POINT = [0, 0, 0]
 
-        self.best = CarState()
+        self.last_dist = 0
 
     def on_bruteforce_evaluate(self, iface, info: BFEvaluationInfo) -> BFEvaluationResponse:
         self.curr = CarState()
@@ -55,10 +50,12 @@ class MainClient(Client):
                 self.best = self.curr
 
             if self.is_max_time():
-                green_text = f"base at {self.best.time}: {self.best.angle=}"
-                if   NEXT_EVAL == "point": green_text += f", {self.best.distance=}"
-                elif NEXT_EVAL == "speed": green_text += f", {self.best.speed=}"                
+                green_text = f"base at {self.best.time}: {self.best.distance=}, {self.best.speed=}"
                 print(green_text)
+
+                if self.best.time > 0:
+                    global EVAL_TIME_MAX
+                    EVAL_TIME_MAX = min(EVAL_TIME_MAX, self.best.time)
 
         elif self.phase == BFPhase.SEARCH:
             if self.is_eval_time() and self.is_better(iface):
@@ -92,37 +89,22 @@ class MainClient(Client):
         #if not (min(x1,x2) < x < max(x1,x2) and min(y1,y2) < y < max(y1,y2) and min(z1,z2) < z < max(z1,z2)):
         #    return False
 
-        car_yaw   = to_deg(state.yaw_pitch_roll[0])
-        car_pitch = to_deg(state.yaw_pitch_roll[1])
-        car_roll  = to_deg(state.yaw_pitch_roll[2])
-
-        target_yaw   = to_deg(math.atan2(state.velocity[0], state.velocity[2]))
-        target_pitch = 90
-        target_roll  = 0
-
-        diff_yaw = abs(car_yaw - target_yaw)
-        diff_yaw = max(diff_yaw - 90, 0) # [-90; 90]° yaw is ok to nosebug, so 100° should only add 10°
-
-        self.curr.angle = diff_yaw + abs(car_pitch - target_pitch) + abs(car_roll - target_roll)
-        self.curr.distance = distance_to_point(state.position)
+        self.curr.distance = self.last_dist
         self.curr.speed = car_speed_kmh
+        
+        d = distance_to_trigger()
+        if d > 0:
+            self.last_dist = d
+            return False
         
         if self.best.time == -1:
             # Base run (past conditions)
             return True
         
-        if self.best.angle < GOOD_NOSEPOS_DEG and self.curr.angle < GOOD_NOSEPOS_DEG:
-            # Best and current have a good angle, now check next eval
-            if NEXT_EVAL == "point":
-                return self.curr.distance < self.best.distance
-            
-            if NEXT_EVAL == "speed":
-                return self.curr.speed > self.best.speed
-            
-            if NEXT_EVAL == "time":
-                return self.curr.time < self.best.time
+        if self.curr.time < self.best.time or (self.curr.time == self.best.time and self.last_dist < self.best.distance):
+            return True
         
-        return self.curr.angle < self.best.angle
+        return False
 
     def is_eval_time(self):
         return EVAL_TIME_MIN <= self.curr.time <= EVAL_TIME_MAX
@@ -150,8 +132,42 @@ def nb_wheels_on_ground(state):
 
     return number
 
-def distance_to_point(pos):
-    return (pos[0]-POINT[0]) ** 2 + (pos[1]-POINT[1]) ** 2 + (pos[2]-POINT[2]) ** 2
+def distance_to_trigger(pos):
+    x, y, z = pos
+    x1, y1, z1, x2, y2, z2 = TRIGGER
+
+    # change center: trigger point is new 0,0
+    x_mid = x - min(x1,x2)
+    z_mid = z - min(z1,z2)
+
+    print(x_mid)
+    print(z_mid)
+
+    # transpose with target direction
+    angle = to_rad(TRIGGER_ANGLE)
+
+    x_new = x_mid * math.cos(angle) - z_mid * math.sin(angle)
+    z_new = x_mid * math.sin(angle) + z_mid * math.cos(angle)
+
+    print(x_new)
+    print(z_new)
+
+    x_size = max(x1,x2) - min(x1,x2)
+    z_size = max(z1,z2) - min(z1,z2)
+
+    # if 0 < x_new < x_size and 0 < z_new < z_size and min(y1,y2) < y < max(y1,y2):
+    #     return 0
+    
+    dist = 0
+    if x_new < 0     : dist += abs(x_new)          ** 2
+    if x_new > x_size: dist += abs(x_new - x_size) ** 2
+    if z_new < 0     : dist += abs(z_new)          ** 2
+    if z_new > z_size: dist += abs(z_new - z_size) ** 2
+    if y < min(y1,y2): dist += abs(y - min(y1,y2)) ** 2
+    if y > min(y1,y2): dist += abs(y - max(y1,y2)) ** 2
+
+    return math.sqrt(dist)
+
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'

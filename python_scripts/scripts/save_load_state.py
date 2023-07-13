@@ -33,7 +33,7 @@ def load_state(path: str) -> SimStateData:
         data.input_gas_event = read_event()
 
         data.num_respawns = read_int()
-
+        f.read(4)
         cp_states = []
         num_cp_states = read_int()
         for _ in range(num_cp_states):
@@ -68,6 +68,7 @@ def save_state(data: SimStateData, path: str):
         f.write(data.cmd_buffer_core)
         f.write(data.player_info)
         f.write(data.internal_input_state)
+        print(f"{len(data.player_info)=}")
 
         write_event(data.input_running_event)
         write_event(data.input_finish_event)
@@ -80,6 +81,8 @@ def save_state(data: SimStateData, path: str):
 
         write_int(data.num_respawns)
         
+        print(f"{data.cp_data.cp_states=}")
+        print(f"{data.cp_data.cp_states=}")
         write_int(len(data.cp_data.cp_states))
         for state in data.cp_data.cp_states:
             write_int(state)

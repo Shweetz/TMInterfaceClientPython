@@ -7,6 +7,7 @@ import math
 import numpy as np
 import sys
 
+#StarIslandD3 by Kimura
 MIN_TIME = 11000
 MAX_TIME = 14500
 MIN = [1859, 42, 1678]
@@ -53,14 +54,19 @@ class MainClient(Client):
 
                     x, y, z = state.position
                     state.position = [self.ax * x + self.bx, self.ay * y + self.by, self.az * z + self.bz]
+
                     vx, vy, vz = state.dyna.current_state.linear_speed
                     # state.velocity = [self.ax * vx, self.ay * vy, self.az * vz] API bug
                     state.dyna.current_state.linear_speed = [self.ax * vx, self.ay * vy, self.az * vz]
-                    avx, avy, avz = state.dyna.current_state.linear_speed
-                    # state.dyna.current_state.angular_speed = [self.ax * avx, self.ay * avy, self.az * avz]
+
+                    avx, avy, avz = state.dyna.current_state.angular_speed
+                    state.dyna.current_state.angular_speed = [self.ax * avx, self.ay * avy, self.az * avz]
+                    
                     iface.rewind_to_state(state)
-                    state.position = [x, y, z]
-                    state.dyna.current_state.linear_speed = [vx, vy, vz]
+
+                    # Why these?
+                    # state.position = [x, y, z]
+                    # state.dyna.current_state.linear_speed = [vx, vy, vz]
                     # state.dyna.current_state.angular_speed = [avx, avy, avz]
 
                     self.state_index += 1

@@ -10,30 +10,47 @@ import time
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
-from tminterface.commandlist import CommandList, InputCommand, InputType
-from save_load_state import load_state
-from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
+
+class ChangeType(IntEnum):
+    STEER_DIFF = 0
+    TIMING = 1
+     # TODO CREATE_REMOVE = 2
+
+@dataclass
+class Change:
+    input : str
+    change_type : ChangeType
+    proba : float
+    start_time : int
+    end_time : int
+    diff : int
+
+    def __str__(self):
+        return f"rule: From {self.start_time} to {self.end_time}ms, change {self.change_type.name} for {self.input} with max diff of {self.diff} and modify_prob={self.proba}"
 
 """START OF PARAMETERS (you can change here)"""
 rules = []
 
-rules.append(Rule(Input.STEER, Change.STEER_, proba=0.01, start_time="20.30", end_time="24.00", diff=65536))
-# rules.append(Rule(Input.UP___, Change.TIMING, proba=0.01, start_time="12:41.00", end_time="12:47.00", diff=30))
-rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.01, start_time="20.30", end_time="24.00", diff=30))
-# rules.append(Rule(Input.STEER, Change.TIMING, proba=0.5, start_time="0.00", end_time="4.00", diff=100))
+rules.append(Change(ANALOG_STEER_NAME, ChangeType.STEER_DIFF, proba=0.01, start_time=4400, end_time=5760, diff=65536))
+#rules.append(Change(ANALOG_STEER_NAME, ChangeType.TIMING,     proba=0.01, start_time=2800, end_time=4000, diff=20))
+#rules.append(Change(BINARY_ACCELERATE_NAME, ChangeType.TIMING,proba=0.05, start_time=28000, end_time=62000, diff=30))
+#rules.append(Change(BINARY_BRAKE_NAME, ChangeType.TIMING,     proba=0.05, start_time=28000, end_time=99000, diff=30))
 
-PRECISION = 0.001
+PRECISION = 0.000001
 FILL_INPUTS = True
 LOCK_BASE_RUN = False
-LOAD_INPUTS_FROM_FILE = False
-LOAD_REPLAY_FROM_STATE = False
 
 # steer_cap_accept = True
-steer_equal_last_input_proba = 0.2
-steer_zero_proba = 0.2 # proba to randomize steer to 0 instead of changing direction left/right 
+steer_equal_last_input_proba = 0
+steer_zero_proba = 0 # proba to randomize steer to 0 instead of changing direction left/right 
+sim_end = 100000000
+target_CP = 1
 """END OF PARAMETERS"""
 
-# Files stuff
+# class Input(IntEnum):
+#     UP = BINARY_ACCELERATE_NAME
+#     DOWN = BINARY_BRAKE_NAME
+#     STEER = ANALOG_STEER_NAME
 
 class Phase(IntEnum):
     WAITING_GAME_FINISH = 0
@@ -45,14 +62,8 @@ class Phase(IntEnum):
 #     TIED = 2
 #     FASTER_ESTIMATING = 3
 
-for rule in rules:
-    rule.init()
-
 lowest_poss_change = min([c.start_time for c in rules])
 highest_poss_change = max([c.end_time for c in rules])
-
-if not lowest_poss_change <= highest_poss_change:
-    print("ERROR: MUST HAVE 'lowest_poss_change <= highest_poss_change'")
 
 
 class MainClient(Client):
@@ -67,7 +78,7 @@ class MainClient(Client):
         # self.base_velocity = None
         self.best_coeff = -1
         self.nb_iterations = 0
-        self.lowest_time = -1
+        self.simu_end = sim_end
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
@@ -78,29 +89,17 @@ class MainClient(Client):
     def on_simulation_begin(self, iface):
         iface.remove_state_validation()
 
-        # Fill begin_buffer
         self.begin_buffer = iface.get_event_buffer()
-        if LOAD_INPUTS_FROM_FILE:
-            self.load_inputs_from_file()
-            iface.set_event_buffer(self.begin_buffer)
+        self.lowest_time = self.begin_buffer.events_duration
         if FILL_INPUTS:
             self.fill_inputs()
-
-        self.lowest_time = self.begin_buffer.events_duration
         self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
         # print(self.current_buffer.to_commands_str())
-
-        # Load state
-        if LOAD_REPLAY_FROM_STATE:
-            file_name = "../States/state.bin"
-            self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
-            self.state_min_change = load_state(self.state_file)
-            iface.rewind_to_state(self.state_min_change)
         
     def fill_inputs(self, start_fill=0, end_fill=0):
         """Fill inputs between start_fill and end_fill included"""
         if end_fill == 0:
-            end_fill = self.begin_buffer.events_duration
+            end_fill = self.simu_end
             
         curr_steer = 0
         for event_time in range(start_fill, end_fill+10, 10):
@@ -134,14 +133,6 @@ class MainClient(Client):
             if self.finished:
                 # Check finish time
 
-                if self.race_time <= self.lowest_time:
-                    # 0.01 better (at least)
-                    self.save_result("result_0.01_better.txt")
-                    self.lowest_time = self.race_time-10 # -10 because game floors the ms
-                    self.best_coeff = -1
-                    print(f"FOUND IMPROVEMENT: {self.lowest_time}")
-                
-                # print(f"{self.race_time} {self.lowest_time}")
                 # Game finish time is tied or better, now evaluate precise finish time
                 self.phase = Phase.ESTIMATING_PRECISE_FINISH
                 self.min_coeff = 0
@@ -157,17 +148,34 @@ class MainClient(Client):
             else:
                 # Not reached finish yet
                 
-                if self.race_time > self.lowest_time:
+                if self.race_time > self.simu_end:
                     # 0.01 worse (at least)
-                    self.start_new_iteration(iface)
+                    #block new iteration for CP estimation from most recent critical CP reached
+                    if self.CP_reached == True:
+                        
+                        self.state_before_finish = self.cp_state
+                        _time = self.cp_time
+                        
+                        self.phase = Phase.ESTIMATING_PRECISE_FINISH
+                        self.min_coeff = 0
+                        self.max_coeff = 1
+                        self.coeff = (self.min_coeff + self.max_coeff) / 2
+
+                        self.base_velocity = self.state_before_finish.velocity # velocity on tick before finish
+                        self.base_angular_velocity = self.get_angular_velocity(self.state_before_finish)
+                        self.rewind_before_finish(iface)
+                        
+                    else:
+                        self.start_new_iteration(iface)
                 else:
                     # Save last state before regular game finish
                     self.state_before_finish = iface.get_simulation_state()
+                    self.state_before_finish_time = _time + 10
 
         elif self.phase == Phase.ESTIMATING_PRECISE_FINISH:
             # Needs estimating, either because it's unclear if iteration is faster or because new best iteration needs
             estimate_current_iteration = self.estimate_iteration(iface, _time)
-            
+
             if estimate_current_iteration == "worse":
                 # Start new iteration
                 self.start_new_iteration(iface)
@@ -179,8 +187,6 @@ class MainClient(Client):
                     self.best_precise_time = self.time_with_speed_coeff
                     if self.nb_iterations == 0:
                         print(f"base = {self.time_with_speed_coeff}")
-                        # self.lowest_time = _time
-                        # print(self.lowest_time)
                     else:
                         print(f"accept {self.time_with_speed_coeff}")
                         if not LOCK_BASE_RUN:
@@ -196,11 +202,7 @@ class MainClient(Client):
 
     def estimate_iteration(self, iface, _time):
         """Check if self.coeff was enough to finish, and returns 'worse', 'estimated' or 'not_estimated' """
-
-        if _time != self.lowest_time + 10:
-            print(f"{_time=} should not happen!")
-            # return False
-
+        
         # If self.coeff was enough to finish, update precision on finish time
         if self.finished:
             self.max_coeff = self.coeff
@@ -242,13 +244,15 @@ class MainClient(Client):
         self.base_angular_velocity = None
         self.finished = False
         self.randomize_inputs()
+        self.CP_reached = False
+        self.best_coeff = -1
         iface.set_event_buffer(self.current_buffer)
         if not self.state_min_change:
             print("no self.state_min_change to rewind to")
             sys.exit()
         iface.rewind_to_state(self.state_min_change)
         self.nb_iterations += 1
-        if self.nb_iterations in [1, 10, 100] or self.nb_iterations % 1000 == 0:
+        if self.nb_iterations % 1000 == 0:
             print(f"{self.nb_iterations=}")
 
     def randomize_inputs(self):
@@ -266,125 +270,57 @@ class MainClient(Client):
         # Apply rules to self.current_buffer.events
         for rule in rules:
             # only inputs that match the rule (ex: steer)
-            events = self.current_buffer.find(event_name=rule.input.value)
-            if rule.change_type == Change.STEER_ or rule.change_type == Change.TIMING:
-                last_steer = 0
-                for event in events:
-                    event_realtime = event.time - 100010
-                    # event in rule time
-                    if rule.start_time <= event_realtime <= rule.end_time:
-                        # event proba
-                        if random.random() < rule.proba:
-                            # event type
-                            if rule.change_type == Change.STEER_:
-                                if random.random() < steer_equal_last_input_proba:
-                                    event.analog_value = last_steer
+            events = self.current_buffer.find(event_name=rule.input)
+            last_steer = 0
+            for event in events:
+                event_realtime = event.time - 100010
+                # event in rule time
+                if rule.start_time <= event_realtime <= rule.end_time:
+                    # event proba
+                    if random.random() < rule.proba:
+                        # event type
+                        if rule.change_type == ChangeType.STEER_DIFF:
+                            if random.random() < steer_equal_last_input_proba:
+                                event.analog_value = last_steer
+                            else:
+                                new_steer = event.analog_value + random.randint(-rule.diff, rule.diff)
+                                # if diff makes steer change direction (left/right), try 0
+                                if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value) and random.random() < steer_zero_proba:
+                                    event.analog_value = 0
                                 else:
-                                    new_steer = event.analog_value + random.randint(-rule.diff, rule.diff)
-                                    # if diff makes steer change direction (left/right), try 0
-                                    if (event.analog_value < 0 < new_steer or new_steer < 0 < event.analog_value) and random.random() < steer_zero_proba:
-                                        event.analog_value = 0
-                                    else:
-                                        event.analog_value = new_steer
-                                    event.analog_value = min(event.analog_value, 65536)
-                                    event.analog_value = max(event.analog_value, -65536)
-                                    
-                            if rule.change_type == Change.TIMING:
-                                # ms -> 0.01
-                                diff = random.randint(-rule.diff/10, rule.diff/10)
-                                # 0.01 -> ms
-                                event.time += diff*10
+                                    event.analog_value = new_steer
+                                event.analog_value = min(event.analog_value, 65536)
+                                event.analog_value = max(event.analog_value, -65536)
+                                
+                        if rule.change_type == ChangeType.TIMING:
+                            # ms -> 0.01
+                            diff = random.randint(-rule.diff/10, rule.diff/10)
+                            # 0.01 -> ms
+                            event.time += diff*10
 
-                    if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
-                        last_steer = event.analog_value
-
-            elif rule.change_type == Change.AVG_REBRUTE:
-                if rule.state == "":
-                    # gather events
-                    rule.events = []
-                    for event in events:
-                        event_realtime = event.time - 100010
-                        if rule.start_time <= event_realtime <= rule.end_time:
-                            rule.events.append(event)
-
-                    avg = 0
-                    nb_inputs = 0
-
-                    # loop to calculate avg
-                    # avg wrong if no fill_inputs?
-                    for event in rule.events:
-                        avg += event.analog_value
-                        nb_inputs += 1
-
-                    avg = avg / nb_inputs
-                    print(avg)
-
-                    # loop again to set avg to all
-                    for event in rule.events:
-                        event.analog_value = avg
-                    
-                    rule.state = "AVG"
-                    rule.iterations = 0
-
-                elif rule.state == "AVG":
-                    # bf for X iterations and change steer by same value for all
-                    diff = random.randint(-rule.diff, rule.diff)
-                    for event in rule.events:
-                        event.analog_value += diff
-
-                    rule.iterations += 1
-                    if rule.iterations > 1000:
-                        rule.state = "REBRUTE"
-                        rule.iterations = 0
-                    
-                    # print(time)
-
-                elif rule.state == "REBRUTE":
-                    # bf for X iterations and change steer individually
-                    for event in rule.events:
-                        diff = random.randint(-rule.diff, rule.diff)
-                        event.analog_value += diff
-                        
-                    rule.iterations += 1
-                    if rule.iterations > 1000:
-                        rule.state = ""
-                    
-                    # compare time with before rule
-
+                if ANALOG_STEER_NAME == self.begin_buffer.control_names[event.name_index]:
+                    last_steer = event.analog_value
         
-    def save_result(self, time_found="", file_name="result.txt"):
+    def save_result(self, time_found="", file_name="precisecp 1per.txt"):
         if time_found == "":
             time_found = self.time_with_speed_coeff
         # Write inputs in file
-        res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+        res_file = os.path.expanduser('~/OneDrive/Documents') + "/TMInterface/Scripts/" + file_name
         with open(res_file, "w") as f:
             f.write(f"# Time: {time_found}, iterations: {self.nb_iterations}\n")
             f.write(self.current_buffer.to_commands_str())
 
-    def load_inputs_from_file(self, file_name="inputs.txt"):
-        # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
-        self.begin_buffer.clear()
-
-        inputs_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
-        cmdlist = CommandList(open(inputs_file, 'r'))
-        commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
-
-        for command in commands:
-            if command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
-            elif command.input_type == InputType.DOWN: command.input = BINARY_BRAKE_NAME
-            elif command.input_type == InputType.STEER: command.input = ANALOG_STEER_NAME
-
-            self.begin_buffer.add(command.timestamp, command.input, command.state)
-        # for event_time in range(start_fill, end_fill+10, 10):
-        #     events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
-        #     if len(events_at_time) > 0:
-        #         curr_steer = events_at_time[-1].analog_value
-        #     else:
-        #         self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
-        # return 
-
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         # print(f'Reached checkpoint {current}/{target}')
+        
+        if current == target_CP:
+            self.CP_reached = True
+            self.cp_state = self.state_before_finish
+            self.cp_time = self.state_before_finish_time
+            
+            if self.phase == Phase.ESTIMATING_PRECISE_FINISH:
+                self.finished = True
+        
         if current == target:
             # print(f'Finished the race at {self.race_time}')
             self.finished = True
@@ -403,7 +339,7 @@ class MainClient(Client):
 
 
 def main():
-    server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
+    server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface1'
     print(f'Connecting to {server_name}...')
     run_client(MainClient(), server_name)
 

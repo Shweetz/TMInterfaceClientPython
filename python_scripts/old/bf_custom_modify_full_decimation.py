@@ -10,41 +10,39 @@ from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BIN
 from tminterface.eventbuffer import EventBufferData
 from tminterface.commandlist import CommandList, InputCommand, InputType
 
-from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer, to_sec
-from save_load_state import load_state, save_state
-
-rules = []
+from SUtil import Input, Change, Rule, Eval, Optimize, MinMax, Car, Goal, get_dist_2_points, ms_to_sec, sec_to_ms, add_events_in_buffer
+from save_load_state import load_state
 
 """START OF PARAMETERS (you can change here)"""
+rules = []
 
 LOAD_INPUTS_FROM_FILE = ""
-LOAD_REPLAY_FROM_STATE = ""
+LOAD_REPLAY_FROM_STATE = "state.bin"
 LOCK_BASE_RUN = False
 
-##### RULES ######
-
 FILL_INPUTS = True
-start = "0"
-end   = "7.30"
-# end   = "17.97"
-# TIME_BEFORE = -500
-# TIME_AFTER  = 0
+start = "44:57.50"
+end   = "45:02.20"
+# start = "58.00"
+# end   = "1:02.50"
 TIME_BEFORE = 0
 TIME_AFTER  = 0
+# start = ms_to_sec(int(sec_to_ms(end)) - 5500)
 
 if FILL_INPUTS:
     proba = 0.01
 else:
-    proba = 0.5
+    proba = 0.2
     rules.append(Rule(Input.STEER, Change.TIMING, proba=proba, start_time=start, end_time=end, diff=50))
 
-rules.append(Rule(Input.STEER, Change.STEER_, proba=proba, start_time=start, end_time=end, diff=2000))
-# rules.append(Rule(Input.STEER, Change.STEER_, proba=proba, start_time="1:16.00", end_time=end, diff=65536))
-# rules.append(Rule(Input.UP___, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
-# rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
+# proba = 0.01
+# start = "22:10.00"
+rules.append(Rule(Input.STEER, Change.STEER_, proba=proba, start_time=start, end_time=end, diff=65536))
+rules.append(Rule(Input.UP___, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
+rules.append(Rule(Input.DOWN_, Change.TIMING, proba=0.1, start_time=start, end_time=end, diff=50))
+# rules.append(Rule(Input.STEER, Change.TIMING, proba=0.2 , start_time=start, end_time=end, diff=50))
 
-##### eval & parameter #####
-
+# From previous script
 eval = Eval.TIME
 parameter = Optimize.CUSTOM
 
@@ -54,33 +52,24 @@ TIME_MIN = int(sec_to_ms(TIME)) + TIME_BEFORE
 TIME_MAX = int(sec_to_ms(TIME)) + TIME_AFTER
 
 # eval == Eval.CP:
-CP_NUMBER = 32
+CP_NUMBER = 186
 
 # parameter == Optimize.DISTANCE:
-# POINT_POS = [495, 73, 80] # multilap
-# POINT_POS = [64, 95, 547] # landing first ground cp
-# POINT_POS = [784, 24, 931] # last ground cp bugcp
-# POINT_POS = [784, 26, 942] # last ground cp not bugcp
-# POINT_POS = [48, 50, 304] # 2nd to last ring
-# POINT_POS = [50, 30, 150] # flat between last 2 rings
-# POINT_POS = [50, 26, 100] # nb flat before last ring
-# POINT_POS = [78, 75, 81] # last ring
-# POINT_POS = [20, 65, 547]
-
-POINT_POS = [495, 73, 80] # multilap
-
-##### OTHER STUFF #####
+POINT_POS = [480, 115, 720]
 
 # Min diff to consider an improvement worthy
-min_diff = 0
+min_diff = 0.01
 
-p = 0.5
+# steer_cap_accept = True
+if FILL_INPUTS:
+    p = 0.3
+else:
+    p = 0
 steer_equal_last_input_proba = p # proba to make a steer equal to last steer
 steer_zero_proba = p # proba to set steer to 0 instead of changing direction left/right
 steer_full_proba = p
 
-FORMAT_DECIMAL = True
-
+SYNTAX_MS = False
 """END OF PARAMETERS"""
 
 for rule in rules:
@@ -95,29 +84,37 @@ if not lowest_poss_change <= highest_poss_change:
 
 class MainClient(Client):
     def __init__(self) -> None:
+        self.best_precise_time = -1
+        self.finished = False
         self.state_min_change = None
-        self.pre_rewind_buffer = None
+        # self.states = []
         self.begin_buffer = None
         self.current_buffer = None
+        # self.base_velocity = None
+        self.best_coeff = -1
         self.nb_iterations = 0
         self.cp_count = 0
         self.force_reject = False
         self.car = None
+        # self.best_state = None
         self.best_car = None
+        self.pre_rewind_buffer = None
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
-        iface.execute_command('set controller none')
         print(f"Randomizing inputs between {lowest_poss_change} and {highest_poss_change}")
         iface.execute_command("load result.txt")
         for rule in rules:
             print(rule)
 
     def on_deregistered(self, iface: TMInterface) -> None:
+        iface.execute_command("load result.txt")
         print(f'Deregistered from {iface.server_name}')
 
     def on_simulation_begin(self, iface):
+        # print("on_simulation_begin start")
         iface.remove_state_validation()
+        # iface.set_timeout(2000)
 
         self.begin_buffer = iface.get_event_buffer()
         self.lowest_time = self.begin_buffer.events_duration
@@ -125,82 +122,69 @@ class MainClient(Client):
         if eval == Eval.TIME:
             if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
                 print("ERROR: MUST HAVE 'TIME_MIN <= TIME_MAX <= REPLAY_TIME'")
-
+            
             iface.set_simulation_time_limit(TIME_MAX + 10)
 
+        # if self.lowest_time < TIME_MAX + 1000:
+        #     iface.set_simulation_time_limit(TIME_MAX + 1000)
+        #     a = self.lowest_time
+        #     self.lowest_time = TIME_MAX + 1000
+        #     self.begin_buffer.events_duration = self.lowest_time
+        #     events = self.begin_buffer.find(event_name=BINARY_RACE_FINISH_NAME)
+        #     events = self.begin_buffer.find(time=a)
+        #     print(len(events))
+        #     events[0].time = self.lowest_time + 100010
+
         # Fill begin_buffer
+        self.begin_buffer = iface.get_event_buffer()
         if LOAD_INPUTS_FROM_FILE:
             self.pre_rewind_buffer = EventBufferData(self.lowest_time)
             self.pre_rewind_buffer.control_names = self.begin_buffer.control_names
             self.load_inputs_from_file()
-            # print(f"{len(self.begin_buffer.events)=}")
-            # if not LOAD_REPLAY_FROM_STATE:
             # iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER AND DELETE FOR RUN/SIMU STATES
-
-            # print(f"buffer 1: len={len(self.pre_rewind_buffer.events)}")
-            # print(self.pre_rewind_buffer.to_commands_str())
-            # print(f"buffer 2: len={len(self.begin_buffer.events)}")
-            # print(self.begin_buffer.to_commands_str())
-
-        # else:
-        #     # input command sorted
-        #     # dichotomy dans les input command
-        #     # trouver l'index de séparation
-        #     # prerewind = [:i] et begin = [i:]
-        #     self.pre_rewind_buffer = EventBufferData(self.lowest_time)
-        #     self.pre_rewind_buffer.control_names = self.begin_buffer.control_names
+        else:
+            # input command sorted
+            # dichotomy dans les input command
+            # trouver l'index de séparation
+            # prerewind = [:i] et begin = [i:]
+            self.pre_rewind_buffer = EventBufferData(self.lowest_time)
+            self.pre_rewind_buffer.control_names = self.begin_buffer.control_names
 
         if FILL_INPUTS:
             self.fill_inputs(lowest_poss_change, highest_poss_change)
 
         self.current_buffer = EventBufferData(self.lowest_time)
         self.current_buffer.control_names = self.begin_buffer.control_names
-        self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
-        
-        # print("aaa")
-        # print(load_state(os.path.expanduser('~/Documents') + "/TMInterface/States/" + "zaz.bin").time)
-        # print(load_state(os.path.expanduser('~/Documents') + "/TMInterface/States/" + "state1.98.bin").time)
+        # self.current_buffer = self.begin_buffer.copy() # copy avoids timeout?
+        # print(self.begin_buffer.to_commands_str())
+            
         # print("on_simulation_begin end")
         pass
         
     def on_simulation_step(self, iface: TMInterface, _time: int):
         # print("on_simulation_step start")
         self.race_time = _time
-
-        # if _time == 2000:
-        #     iface.set_input_state(sim_clear_buffer=False, accelerate=False)
-        # if _time == 2010:
-        #     iface.set_input_state(sim_clear_buffer=False, accelerate=True)
-
         if not self.state_min_change:
-            # buffer = iface.get_event_buffer()
-            # events = buffer.find(time=self.race_time)
-            # for event in events:
-            #     print(f"{event.time - 100010} - {event.analog_value}")
-                
             if _time == 0 and LOAD_REPLAY_FROM_STATE:
-                self.load_replay_from_state(iface)
+                self.load_replay_from_state(iface, LOAD_REPLAY_FROM_STATE)
 
-            # if LOAD_INPUTS_FROM_FILE and not LOAD_REPLAY_FROM_STATE:
-            #     if self.race_time % 10000 == 0:
-            #         sys.stdout.write(f"\rSimulating base run... {int(self.race_time/1000)}sec")
-            #         sys.stdout.flush()
-            #     if self.race_time == lowest_poss_change - 10:
-            #         print()
-            #         print(f"Simulation done")
+            if LOAD_INPUTS_FROM_FILE and not LOAD_REPLAY_FROM_STATE:
+                if self.race_time % 10000 == 0:
+                    sys.stdout.write(f"\rSimulating base run... {int(self.race_time/1000)}sec")
+                    sys.stdout.flush()
+                if self.race_time == lowest_poss_change - 10:
+                    print()
+                    print(f"Simulation done")
                     
-            #         # This line sets base run as the inputs file instead of the replay
-            #         # iface.set_event_buffer(self.begin_buffer)
-            # else:
-            #     # When loading inputs from a long replay, we can't load them all at the start because TMI timeout
-            #     # So we load the inputs when they happen -> doesn't work with simu save state
-            #     # events_at_time = self.begin_buffer.find(time=self.race_time)
-            #     # for event in events_at_time:
-            #     #     add_events_in_buffer(events_at_time, self.current_buffer)
-            #     pass
-
-            # if self.race_time == lowest_poss_change - 10:
-            #     iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER AND DELETE FOR RUN/SIMU STATES
+                    # This line sets base run as the inputs file instead of the replay
+                    # iface.set_event_buffer(self.begin_buffer)
+            else:
+                # When loading inputs from a long replay, we can't load them all at the start because TMI timeout
+                # So we load the inputs when they happen -> doesn't work with simu save state
+                # events_at_time = self.begin_buffer.find(time=self.race_time)
+                # for event in events_at_time:
+                #     add_events_in_buffer(events_at_time, self.current_buffer)
+                pass
 
             if self.race_time == lowest_poss_change - 10:
                 # Store state to rewind to for every iteration, for now it is earliest possible input change
@@ -208,10 +192,6 @@ class MainClient(Client):
                 self.state_min_change = iface.get_simulation_state()
 
                 print(f"self.state_min_change created at {ms_to_sec(self.race_time)}")
-
-                # self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + "zaz.bin"
-                # save_state(self.state_min_change, self.state_file)
-                # iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER AND DELETE FOR RUN/SIMU STATES
 
         if self.is_eval_time():
             # print("eval_time")
@@ -236,12 +216,12 @@ class MainClient(Client):
 
         # Wait until the end of eval time before rewinding, in case an even better state is found later on
         if self.is_past_eval_time():
-
-            # TMP TEST
-            # self.save_result()
-            # sys.exit()
             # print("past eval_time")
             self.start_new_iteration(iface)
+
+    def condition(self):
+        """Returns False if conditions are not met so run is rejected"""
+        return True
         
     def is_better(self, state):
         self.car = Car(self.race_time)
@@ -249,12 +229,15 @@ class MainClient(Client):
 
         # if there's no best car, then it's base run
         base_run = not self.best_car
+
+        if not self.condition():
+            return False
             
         if parameter == Optimize.TIME:
             return self.is_earlier(base_run, min_diff)
 
         if parameter == Optimize.DISTANCE:
-            return self.is_closer(base_run, min_diff)
+            return self.is_closer(base_run, min_diff, "xyz")
 
         if parameter == Optimize.VELOCITY:
             return self.is_faster(base_run, min_diff)
@@ -277,24 +260,32 @@ class MainClient(Client):
         #     return False
         # if not abs(self.car.pitch_rad) + abs(self.car.roll_rad) < 1:
         #     return False
-        # # print(self.car.y)
-        # if not 280 < self.car.x:
+        # # # print(self.car.y)
+        if not 787 < self.car.x < 790:
+            return False
+        if not 209 < self.car.y < 999:
+            return False
+        if not 735 < self.car.z < 999:
+            return False
+        # if not abs(self.car.pitch_rad) < 0.5:
         #     return False
-        # if not 130 < self.car.y:
-        #     return False
-        # if not 725 < self.car.z < 733:
-        #     return False
-        # if not self.car.yaw_deg > 70:
-        #     return False
-        # if not self.cp_count >= 30:
+        # if not self.cp_count >= 85:
         #     return False
 
-        # self.car.custom = abs(car.pitch_deg - 90)
+        # self.car.custom = abs(self.car.pitch_deg - 90)
         # self.car.custom = self.car._time
-        self.car.custom = - self.car.z
+        # self.car.custom = self.car.x + self.car.vel_x
         # self.car.custom = get_dist_2_points(POINT_POS, self.car.position, "xz")
-        # self.car.custom = self.car.get_speed("xz")
+        # self.car.custom = self.car.get_speed("xyz")       
         
+        cx = 0
+        cz = 1
+        cspeed = 2
+        x = self.car.x + self.car.vel_x*cspeed
+        z = self.car.z + self.car.vel_z*cspeed
+        self.car.custom = x*cx + z*cz
+        # self.car.custom = - abs(self.car.pitch_deg)
+
         if base_run:
             print(f"Base run custom = {self.car.custom}")
             return True
@@ -333,8 +324,8 @@ class MainClient(Client):
         #     return False
         # if not 63 < self.car.y:
         #     return False
-        if not 102 < self.car.z < 104:
-            return False
+        # if not 102 < self.car.z < 104:
+        #     return False
         # if not self.cp_count >= 73:
         #     return False
             
@@ -343,7 +334,10 @@ class MainClient(Client):
         #     return False
 
         goals = []
-        goals.append(Goal("x", MinMax.MIN, 0))
+        goals.append(Goal("y", MinMax.MAX, 46))
+        goals.append(Goal("x", MinMax.MAX, 496))
+        goals.append(Goal("pitch_rad", MinMax.MAX, -0.5))
+        goals.append(Goal("z", MinMax.MIN, 0))
         goals.append(Goal("_time", MinMax.MIN, 0))
 
         if base_run:
@@ -366,90 +360,6 @@ class MainClient(Client):
                     
         return False
         
-    def is_custom4(self, base_run, min_diff=0):
-        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-
-        # condition
-        if not self.car.nb_wheels_on_ground > 0: # 0 wheel on ground
-            return False
-        if not self.cp_count >= CP_NUMBER:
-            return False        
-        if not  25 < self.car.x < 999:
-            return False
-        if not  25 < self.car.y < 30:
-            return False
-        # if not 0 < self.car.z < 600:
-        #     return False
-        # # if not 384 < (self.car.y * 2 + self.car.x) < 390:
-        # #     return False
-        # if not 450 < self.car.speed_kmh:
-        #     return False
-        # 0 384
-        # 30 324
-        # 60 264
-        # if not self.cp_count >= 5:
-        #     return False
-        # if not self.car.vel_z < 0:
-        #     return False
-        # if not 200 < self.car.speed_kmh:
-        #     return False
-
-        slope_pitch = 0
-        slope_roll = 0
-
-        target_yaw = math.atan2(self.car.vel_x, self.car.vel_z) * 180/math.pi
-        target_pitch = (math.pi/2 + math.cos(self.car.yaw_rad) * slope_pitch - math.sin(self.car.yaw_rad) * slope_roll) * 180/math.pi
-        target_roll = (math.sin(self.car.yaw_rad) * slope_pitch + math.cos(self.car.yaw_rad) * slope_roll) * 180/math.pi
-        # target_pitch = 90
-        # target_roll = 0
-
-        # self.current = self.car.speed_kmh - self.car.y - abs(self.car.pitch_deg - 90) - abs(self.car.roll_deg) - abs(self.car.yaw_deg - )
-        self.car.custom = abs(self.car.yaw_deg - target_yaw) + abs(self.car.pitch_deg - target_pitch) + abs(self.car.roll_deg - target_roll)
-        # if self.best == -1:
-        #     return True
-        # return self.current < self.best
-
-        if base_run:
-            print(f"Base run custom = {self.car.custom}")
-            return True
-        elif self.car.custom < self.best_car.custom - min_diff:
-            print(f"Improved custom = {self.car.custom}")
-            return True
-
-        return False
-        
-    def is_custom5(self, base_run, min_diff=0):
-        """Evaluates if the iteration is better when parameter == Optimize.CUSTOM"""
-
-        # condition
-        # if not self.cp_count >= CP_NUMBER:
-        #     return False      
-
-        self.car.distance = get_dist_2_points(POINT_POS, self.car.position, "xyz")
-
-        if base_run:
-            print(f"Base run distance = {math.sqrt(self.car.distance)} m")
-            return True
-        else:
-            if self.get_nb_cp(self.car.state) < self.get_nb_cp(self.best_car.state):
-                return False
-            elif self.get_nb_cp(self.best_car.state) < CP_NUMBER:
-                if self.get_nb_cp(self.car.state) >= CP_NUMBER:
-                    print(f"Finished = {ms_to_sec(self.car._time - 10)}")
-                    return True
-                elif self.car.distance < self.best_car.distance - min_diff:
-                    # if not 65 > self.car.y:
-                    #     return False
-                    print(f"Improved distance = {math.sqrt(self.car.distance)} m")
-                    return True
-            else:
-                if self.get_nb_cp(self.car.state) >= CP_NUMBER:
-                    if self.car._time < self.best_car._time - min_diff:
-                        print(f"Improved time = {ms_to_sec(self.car._time - 10)}")
-                        return True
-        
-        return False
-
     def is_earlier(self, base_run, min_diff=0):
         # if base_run:
         #     car = self.best_car
@@ -471,13 +381,20 @@ class MainClient(Client):
         #     return False
         # if not self.car.vel_x > 5:
         #     return False
-        if not self.cp_count >= CP_NUMBER:
-            return False  
+        # if not self.car.yaw_deg > 80:
+        #     return False
+
+        # if not 0 < self.car.x < 999:
+        #     return False
+        # if not 241.0 < self.car.y < 9999:
+        #     return False
+        # if not 0 < self.car.z < 166:
+        #     return False
 
         if base_run:
             print(f"Base run time = {ms_to_sec(self.car._time - 10)}")
             return True
-        elif self.car._time < self.best_car._time - min_diff:
+        elif self.car._time < self.best_car._time:
             print(f"Improved time = {ms_to_sec(self.car._time - 10)}")
             return True
         
@@ -489,27 +406,17 @@ class MainClient(Client):
         # else:
         #     car = self.car
 
-        if not self.cp_count >= CP_NUMBER:
-            return False        
-        if 67 < self.car.x and 130 < self.car.z:
-            return False       
-        if not 25 < self.car.y:
+        if not 0 < self.car.y < 9999:
             return False
-        # if not 500 < self.car.speed_kmh:
-        #     return False
 
-        self.car.distance = get_dist_2_points(POINT_POS, self.car.position, axis)
+        self.car.distance = math.sqrt(get_dist_2_points(POINT_POS, self.car.position, axis))
         
-        # min_diff = 0
-
         if base_run:
-            print(f"Base run distance = {math.sqrt(self.car.distance)} m")
+            print(f"Base run distance = {self.car.distance} m")
             return True
         elif self.car.distance < self.best_car.distance - min_diff:
-            sqrt = math.sqrt(self.car.distance)
-            if sqrt < math.sqrt(self.best_car.distance) - min_diff:
-                print(f"Improved distance = {sqrt} m")
-                return True
+            print(f"Improved distance = {self.car.distance} m")
+            return True
         
         return False
         
@@ -518,6 +425,9 @@ class MainClient(Client):
         #     car = self.best_car
         # else:
         #     car = self.car
+
+        if not 63 < self.car.y < 9999:
+            return False
 
         self.car.velocity = min(self.car.speed_kmh, 1000)
 
@@ -568,12 +478,8 @@ class MainClient(Client):
             sys.exit()
         iface.rewind_to_state(self.state_min_change)
 
-        # Recompute number of CPs
-        self.cp_count = self.get_nb_cp(self.state_min_change)
-        # Recomputation bug? Try -1, but need to investigate
-        # self.cp_count = -1
+        self.cp_count = -1
         # print(f"{self.cp_count=}")
-
         self.nb_iterations += 1
         if self.nb_iterations in [1, 10, 100] or self.nb_iterations % 1000 == 0:
             print(f"{self.nb_iterations=}")
@@ -619,8 +525,6 @@ class MainClient(Client):
                                     event.analog_value = 0
                                 else:
                                     event.analog_value = new_steer
-
-                                # steer should stay in [-65536; 65536]
                                 event.analog_value = min(event.analog_value, 65536)
                                 event.analog_value = max(event.analog_value, -65536)
                                 
@@ -629,14 +533,10 @@ class MainClient(Client):
                             diff = random.randint(-rule.diff/10, rule.diff/10)
                             # 0.01 -> ms
                             event.time += diff*10
-                            
-                            # event.time shall stay in rule start/end time
-                            event.time = min(event.time, rule.end_time + 100010)
-                            event.time = max(event.time, rule.start_time + 100010)
 
                 if Input.STEER.name == self.begin_buffer.control_names[event.name_index]:
                     last_steer = event.analog_value
-        
+
     def fill_inputs(self, start_fill=0, end_fill=0):
         """Fill inputs between start_fill and end_fill included"""
         if end_fill == 0:
@@ -706,7 +606,7 @@ class MainClient(Client):
         inputs_str += self.unfill_inputs(self.current_buffer).to_commands_str()
         
         # Convert inputs
-        if FORMAT_DECIMAL:
+        if not SYNTAX_MS:
             inputs_str = to_sec(inputs_str)
             
         # Header
@@ -714,29 +614,25 @@ class MainClient(Client):
         
         # Footer
         inputs_str += "\n"
+        inputs_str += f"0 load_state {LOAD_REPLAY_FROM_STATE}\n"
+        # inputs_str += f"0 set draw_game false\n"
+        inputs_str += f"0 set speed 100\n"
+        # inputs_str += f"{start} set draw_game true\n"
+        inputs_str += f"{ms_to_sec(int(sec_to_ms(end)) - 2500)} set speed 1\n"
+        inputs_str += f"# 47.0 set cmd_base_time 100\n"
 
-        if LOAD_REPLAY_FROM_STATE:
-            inputs_str += f"0 load_state {LOAD_REPLAY_FROM_STATE}\n"
-        else:
-            # inputs_str += f"0 set draw_game false\n"
-            inputs_str += f"0 set speed 100\n"
-            # inputs_str += f"{start} set draw_game true\n"
-            inputs_str += f"{ms_to_sec(int(sec_to_ms(end)) - 2500)} set speed 1\n"
 
         # Write inputs in file
         res_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
         with open(res_file, "w") as f:
             f.write(inputs_str)
 
-    def load_inputs_from_file(self):
-        """Load a inputs to bruteforce from a file instead of a replay"""
-        print(f"Loading inputs from {LOAD_INPUTS_FROM_FILE}")
-        
-        # Fill the buffers
+    def load_inputs_from_file(self, file_name="inputs.txt"):
+        # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
         self.begin_buffer.clear()
         self.pre_rewind_buffer.clear()
 
-        inputs_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + LOAD_INPUTS_FROM_FILE
+        inputs_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
         cmdlist = CommandList(open(inputs_file, 'r'))
         commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
 
@@ -750,25 +646,25 @@ class MainClient(Client):
             else: print(f"{command.input_type=}"); continue
 
             if command.timestamp < lowest_poss_change:
-                self.begin_buffer.add(command.timestamp, command.input, command.state)
+                self.pre_rewind_buffer.add(command.timestamp, command.input, command.state)
             else:
                 self.begin_buffer.add(command.timestamp, command.input, command.state)
 
-    def load_replay_from_state(self, iface):
-        """Load a save_state to skip the initial simulation up until lowest_poss_change"""
-        
-        print(f"Loading save_state {LOAD_REPLAY_FROM_STATE}")
-        self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + LOAD_REPLAY_FROM_STATE
-        state = load_state(self.state_file)
-        # Update self.race_time with time from save_state
-        # self.race_time = state.time - 2620
-        # state.set
-        
-        iface.rewind_to_state(state)
-        # iface.set_input_state(sim_clear_buffer=False, left=True)
+    def load_replay_from_state(self, iface, file_name=""):
+        """        """        
+        if not file_name:
+            print("No simu_state file suitable to load")
+        else:
+            print(f"Loading {file_name}")
+            self.state_file = os.path.expanduser('~/Documents') + "/TMInterface/States/" + file_name
+            # self.state_min_change = load_state(self.state_file)
+            iface.rewind_to_state(load_state(self.state_file))
+            
+            # update self.race_time with time from simu state
+            self.race_time = iface.get_simulation_state().time - 2610
 
-        if lowest_poss_change - 10 < self.race_time:
-            print("ERROR: simu save_state time must be at least 1 tick before lowest_poss_change")
+            if lowest_poss_change - 10 < self.race_time:
+                print("ERROR: simu save_state time must be at least 1 tick before lowest_poss_change")
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         self.cp_count = current
@@ -783,50 +679,56 @@ class MainClient(Client):
                     TIME_MAX = self.race_time
                     # print(current)
         # print(f'Reached checkpoint {current}/{target}')
-        if current == target:
-            print(f'Finished the race at {self.race_time}')
-            # self.finished = True
-            iface.prevent_simulation_finish()
+        # if current == target:
+        #     # print(f'Finished the race at {self.race_time}')
+        #     self.finished = True
+        #     iface.prevent_simulation_finish()
 
-    def get_nb_cp(self, state):
-        cp_times = state.cp_data.cp_times
+    def get_nb_cp(self, iface):
+        cp_times = iface.get_checkpoint_state().cp_times
         # self.nb_cp = len([time for (time, _) in cp_times if time != -1])
         # print(f"{current} {self.nb_cp=}")
         return len([time for (time, _) in cp_times if time != -1])
+
+
+def to_sec(inputs_str: str) -> str:
+    """Transform a string containing lines of inputs to min:sec.ms format"""
+
+    def ms_to_sec_line(line: str) -> str:
+        """Converter ms->sec for entire line"""
+        if "." in line or line == "":
+            return line
+        splits = line.split(" ")
+        if "-" in splits[0]:
+            press_time, rel_time = splits[0].split("-")
+            splits[0] = ms_to_sec(press_time) + "-" + ms_to_sec(rel_time)
+        else:
+            splits[0] = ms_to_sec(splits[0])
+        return " ".join(splits)
+
+    result_string = ""
+    for line in inputs_str.split("\n"):
+        if line != "":
+            result_string += ms_to_sec_line(line) + "\n"
+    
+    return result_string
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
     print(f'Connecting to {server_name}...')
     run_client(MainClient(), server_name)
+    # run_client(MainClient(), server_name, buffer_size=1000000)
 
 if __name__ == '__main__':
     main()
 
 """
-Save replay without save_state?
-Problem bruteforce crazy?
+To test:
+- Input.STEER/UP/DOWN
+- if self.race_time == lowest_poss_change:
+    if LOAD_INPUTS_FROM_FILE:
+        iface.set_event_buffer(self.begin_buffer)
 
-ERRORS
-Bruteforce replay invalid: 2 respawn on same tick
-
-WARNING
-iface.set_event_buffer(self.begin_buffer) # COMMENT FOR PARTIAL BUFFER AND DELETE FOR RUN/SIMU STATES
-===> AFTER state_min_change REACHED!!!!!!!!!!!!!!
-
-Bugs
-Double start inputs
-save_state + finish : ghost en retard ? bruteforce ok ou ko ?
-
-ALED BRAIN
-PART 1 - LOAD_STATE - PART 2   - state_min_change - PART 3   - PART ITER
-...... - .......... - rep/file - ................ - rep/file - rep/file
-...... - .......... - rep      - ................ - rep      - rep       - LOAD_INPUTS_FROM_FILE non
-...... - .......... - ........ - ................ - ........ - file      - ATM
-...... - .......... - ........ - ................ - file     - ......... - begin_buffer apres min_change
-...... - .......... - file     - ................ - ........ - ......... - pre_rewind buffer au start
-
-STATE - INPUTS
-STATE
-INPUTS
-NONE
+Ideas:
+- not rewind to time 0 => rewind to lowest_poss => rewind to 1st change
 """

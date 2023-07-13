@@ -34,8 +34,23 @@ HOW TO USE
 """
 
 "inputs_assemble_info.txt"
+selected_time="0-2:07.03"
 route = []
-route.append(Split(filename="inputs.txt", selected_time="cp_times"))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+route.append(Split(filename="inputs.txt", selected_time=selected_time))
+# route.append(Split(filename="inputs.txt", selected_time=selected_time))
+# route.append(Split(filename="inputs.txt", selected_time=selected_time))
+# route.append(Split(filename="inputs.txt", selected_time=selected_time))
+# route.append(Split(filename="inputs.txt", selected_time=selected_time))
+# route.append(Split(filename="inputs.txt", selected_time=selected_time))
 
 class RespawnState:
     """Stores the time and inputs pressed during a respawn"""
@@ -110,8 +125,8 @@ def find_start_end_time(selected_time: str, commands: CommandList) -> list[int, 
         end_time   = commands[-1].timestamp
 
     elif "-" in selected_time:
-        start_time = int(sec_to_ms(selected_time.split(".")[0]))
-        end_time   = int(sec_to_ms(selected_time.split(".")[1]))
+        start_time = int(sec_to_ms(selected_time.split("-")[0]))
+        end_time   = int(sec_to_ms(selected_time.split("-")[1]))
 
     elif selected_time == "0":
         start_time = 0
@@ -376,4 +391,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Change current directory from executing directory to script directory
+    if os.path.dirname(__file__) != os.getcwd():
+        print(f"Changing current directory from executing directory to script directory")
+        print(f"{os.getcwd()} => {os.path.dirname(__file__)}")
+        os.chdir(os.path.dirname(__file__))
+
     main()

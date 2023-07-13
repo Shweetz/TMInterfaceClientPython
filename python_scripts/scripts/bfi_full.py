@@ -2,6 +2,8 @@
 from tminterface.structs import BFEvaluationDecision, BFEvaluationInfo, BFEvaluationResponse, BFPhase
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
+from tminterface.commandlist import CommandList, InputCommand, InputType
+from tminterface.constants import ANALOG_STEER_NAME, BINARY_ACCELERATE_NAME, BINARY_BRAKE_NAME, BINARY_LEFT_NAME, BINARY_RIGHT_NAME
 from tminterface.constants import SIMULATION_WHEELS_SIZE
 
 from enum import IntEnum
@@ -39,8 +41,8 @@ class TimeCompare(IntEnum):
     LATER = 2
 
 """START OF PARAMETERS BLOCK (change this to your needs)"""
-eval = Eval.TIME
-parameter = Optimize.VELOCITY
+eval = Eval.CP
+parameter = Optimize.TIME
 trigger_shape = TriggerShape.NONE
 
 #eval == Eval.TIME:
@@ -61,6 +63,7 @@ TRIGGER = [523, 9, 458, 550, 20, 490]
 
 # True to keep base run and not use last improvement's inputs as base for next iterations
 LOCK_BASE_RUN = False
+LOAD_INPUTS_FROM_FILE = True
 
 # Min diff to consider an improvement worthy
 min_diff = 0
@@ -84,7 +87,14 @@ class MainClient(Client):
 
     def on_simulation_begin(self, iface):
         # iface.remove_state_validation()
-        self.lowest_time = iface.get_event_buffer().events_duration
+
+        # Fill begin_buffer
+        self.begin_buffer = iface.get_event_buffer()
+        if LOAD_INPUTS_FROM_FILE:
+            self.load_inputs_from_file()
+            iface.set_event_buffer(self.begin_buffer)
+
+        self.lowest_time = self.begin_buffer.events_duration
         print(f"Base run time: {self.lowest_time}")
         if eval == Eval.TIME:
             if not (TIME_MIN <= TIME_MAX <= self.lowest_time):
@@ -249,7 +259,7 @@ class MainClient(Client):
 
     def is_force_accept(self):
         """Ultimate goal, forces bruteforce to save the result and stop"""
-        return self.cp_count == 1
+        # return self.cp_count == 1
         return False
 
     def is_custom(self, state="", min_diff=0):
@@ -389,7 +399,7 @@ class MainClient(Client):
                     return True
 
         if eval == Eval.CP:
-            if CP_NUMBER <= self.cp_count:
+            if CP_NUMBER <= self.cp_count or self.current_time > self.lowest_time:
                 self.cp_count = 0
                 return True
         
@@ -419,6 +429,28 @@ class MainClient(Client):
         # date = date.strftime("%Y%m%d_%H%M%S")
         # dest = res_file.replace("result.txt", f"{date}_{result_name}.txt")
         # shutil.copy2(res_file, dest)
+
+    def load_inputs_from_file(self, file_name="inputs.txt"):
+        # Clear and re-fill the buffer (to keep control_names and event_duration: worth?)
+        self.begin_buffer.clear()
+
+        inputs_file = os.path.expanduser('~/Documents') + "/TMInterface/Scripts/" + file_name
+        cmdlist = CommandList(open(inputs_file, 'r'))
+        commands = [cmd for cmd in cmdlist.timed_commands if isinstance(cmd, InputCommand)]
+
+        for command in commands:
+            if command.input_type == InputType.UP: command.input = BINARY_ACCELERATE_NAME
+            elif command.input_type == InputType.DOWN: command.input = BINARY_BRAKE_NAME
+            elif command.input_type == InputType.STEER: command.input = ANALOG_STEER_NAME
+
+            self.begin_buffer.add(command.timestamp, command.input, command.state)
+        # for event_time in range(start_fill, end_fill+10, 10):
+        #     events_at_time = self.begin_buffer.find(time=event_time, event_name=ANALOG_STEER_NAME)
+        #     if len(events_at_time) > 0:
+        #         curr_steer = events_at_time[-1].analog_value
+        #     else:
+        #         self.begin_buffer.add(event_time, ANALOG_STEER_NAME, curr_steer)
+        # return 
 
 def get_dist_2_points(pos1, pos2, axis="xyz"):
     dist = 0
