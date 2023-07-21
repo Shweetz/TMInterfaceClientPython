@@ -18,15 +18,20 @@ void UINosePos()
         UI::TextDimmed("Example, max angle diff of 10 means 80° to 100°");
         UI::InputIntVar("Max angle difference", "shweetz_angle_min_deg", 1);
 
-        string next_eval;
-        GetVariable("shweetz_next_eval", next_eval);
+        string next_eval = GetS("shweetz_next_eval");
         if (UI::BeginCombo("Next eval", next_eval)) {
             if (UI::Selectable("None", next_eval == "None")) {
                 SetVariable("shweetz_next_eval", "None");
             }
             if (UI::Selectable("Point", next_eval == "Point")) {
                 SetVariable("shweetz_next_eval", "Point");
-                //point float3
+                string s;
+                GetVariable("shweetz_point", s);
+                Point point(s);
+                if (UI::DragFloat3("Point", point.vpoint)) {
+                    SetVariable("shweetz_point", point.toStr());
+                }
+                
             }
             if (UI::Selectable("Speed", next_eval == "Speed")) {
                 SetVariable("shweetz_next_eval", "Speed");
@@ -74,8 +79,8 @@ BFEvaluationResponse@ OnEvaluateNosePos(SimulationManager@ simManager, const BFE
 
         if (IsMaxTime(raceTime)) {
             string greenText = "base at " + best.time + ": angle=" + best.angle;
-            if (GetVariableString("shweetz_next_eval") == "Point") greenText += ", distance=" + best.distance;
-            if (GetVariableString("shweetz_next_eval") == "Speed") greenText += ", speed=" + best.speed;          
+            if (GetS("shweetz_next_eval") == "Point") greenText += ", distance=" + best.distance;
+            if (GetS("shweetz_next_eval") == "Speed") greenText += ", speed=" + best.speed;          
             print(greenText);
         }
     }
@@ -106,21 +111,21 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
     simManager.Dyna.CurrentState.Location.Rotation.GetYawPitchRoll(carYaw, carPitch, carRoll);
 
     // Conditions
-    if (GetVariableDouble("bf_condition_speed") > speedKmh) {
-        print("Speed too low: " + speedKmh + " < " + GetVariableDouble("bf_condition_speed"));
+    if (GetD("bf_condition_speed") > speedKmh) {
+        print("Speed too low: " + speedKmh + " < " + GetD("bf_condition_speed"));
         return false;
     }
         print("Speed is ok  : " + speedKmh);
 
-    if (GetVariableDouble("shweetz_min_cp") > int(simManager.PlayerInfo.CurCheckpointCount)) {
+    if (GetD("shweetz_min_cp") > int(simManager.PlayerInfo.CurCheckpointCount)) {
         return false;
     }
 
-    if (GetVariableDouble("shweetz_min_wheels_on_ground") > CountWheelsOnGround(simManager)) {
+    if (GetD("shweetz_min_wheels_on_ground") > CountWheelsOnGround(simManager)) {
         return false;
     }
 
-    // if (GetVariableDouble("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
+    // if (GetD("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
     //     return false;
     // }
 
@@ -153,15 +158,15 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
         return true;
     } 
     
-    if (best.angle < GetVariableDouble("shweetz_angle_min_deg") && curr.angle < GetVariableDouble("shweetz_angle_min_deg")) {
+    if (best.angle < GetD("shweetz_angle_min_deg") && curr.angle < GetD("shweetz_angle_min_deg")) {
         // Best and current have a good angle, now check next eval
-        if (GetVariableString("shweetz_next_eval") == "Point") {
+        if (GetS("shweetz_next_eval") == "Point") {
             return curr.distance < best.distance;
         }
-        if (GetVariableString("shweetz_next_eval") == "Speed") {
+        if (GetS("shweetz_next_eval") == "Speed") {
             return curr.speed > best.speed;
         }
-        if (GetVariableString("shweetz_next_eval") == "Time") {
+        if (GetS("shweetz_next_eval") == "Time") {
             return curr.time < best.time;
         }
     }
