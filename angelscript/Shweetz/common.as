@@ -1,4 +1,8 @@
-array<string> modes = { "None", "Point", "Speed", "Time" };
+array<string> targets = { "Nosepos+" };
+array<string> modes = { "Point", "Speed", "Time" };
+array<string> inputTypes = { "Steer", "Accelerate", "Brake" };
+array<string> changeTypes = { "Steering", "Timing", "Create" };
+Point point;
 
 bool IsEvalTime(int raceTime) {
     return GetVariableDouble("shweetz_eval_time_min") <= raceTime && raceTime <= GetVariableDouble("shweetz_eval_time_max");
@@ -13,16 +17,17 @@ bool IsMaxTime(int raceTime) {
 }
 
 double DistanceToPoint(vec3 pos) {
-    array<double> arr = { pos.x, pos.y, pos.z };
-    return DistanceToPoint(arr);
+    //Point point(GetS("shweetz_point"));
+    return Math::Distance(pos, point.pvec);
 }
 
-double DistanceToPoint(array<double> pos) {
-    array<double> POINT = {50, 50, 300};
-    double a = 2.0;
+/*double DistanceToPoint(array<double> pos) {
+    Point point(GetS("shweetz_point"));
+    vec3 pvec = point.pvec;
+    //double a = 2.0;
     //return Math::Pow((pos[0]-POINT[0]), a) + Math::Pow((pos[1]-POINT[1]), a) + Math::Pow((pos[2]-POINT[2]), a);
-    return (pos[0]-POINT[0]) * (pos[0]-POINT[0]) + (pos[1]-POINT[1]) * (pos[1]-POINT[1]) + (pos[2]-POINT[2]) * (pos[2]-POINT[2]);
-}
+    return (pos[0]-pvec[0]) * (pos[0]-pvec[0]) + (pos[1]-pvec[1]) * (pos[1]-pvec[1]) + (pos[2]-pvec[2]) * (pos[2]-pvec[2]);
+}*/
 
 int CountWheelsOnGround(SimulationManager@ simManager) {
     int count = 0;
@@ -44,6 +49,12 @@ bool IsInTrigger(vec3 pos, array<double> TRIGGER) {
     return false;
 }
 
+bool IsInTrigger(vec3 pos, int triggerIndex) {
+    Trigger3D trigger;
+    GetTrigger(trigger, triggerIndex);
+    return trigger.ContainsPoint(pos);
+}
+
 float Norm(vec3 vec) {
     return Math::Sqrt((vec.x * vec.x) + (vec.y * vec.y) + (vec.z * vec.z));
 }
@@ -62,38 +73,47 @@ string GetS(string str) {
 
 class Point
 {
-    string point;
-    vec3 vpoint;
+    string pstr;
+    vec3 pvec;
+
+    Point()
+    {
+        str("0 0 0");
+    }
 
     Point(string s)
     {
-        point = s;
+        str(s);
     }
 
     void str(string s)
     {
-        point = s;
+        pstr = s;
+        array<string>@ splits = s.Split(" ");
+        pvec = vec3(Text::ParseFloat(splits[0]), Text::ParseFloat(splits[1]), Text::ParseFloat(splits[2]));
+        pvec.y = Text::ParseFloat(splits[1]);
+        pvec.z = Text::ParseFloat(splits[2]);
     }
 
     void vec(vec3 v)
     {
-        vpoint = v;
+        pvec = v;
     }
 
     string toStr() 
     {
-        return point;
+        return "" + pvec.x + " " + pvec.y + " " + pvec.z;
     }
 
     vec3 toVec3() 
     {
-        return vec3(0, 0, 0);
+        return pvec;
     }
 }
 
 /* RULES */
 
-enum Change
+/*enum Change
 {
     STEER_,
     TIMING,
@@ -101,19 +121,41 @@ enum Change
     AVG_REBRUTE
 }
 
+string EnumToString(Change enumVal)
+{
+    switch(enumVal)
+    {
+    case Change::STEER_:
+        return "steer";
+    case Change::TIMING:
+        return "timing";
+    case Change::CREATE:
+        return "create";
+    case Change::AVG_REBRUTE:
+        return "avg_rebrute";
+    default:
+        return "ERROR";
+    }
+}*/
+
 class Rule
 {
     string input;
-    Change change_type;
+    string change;
     float proba;
     int start_time;
     int end_time;
     int diff;
 
-    Rule(string i, Change c, float p, int s, int e, int d)
+    Rule()
+    {
+        Rule(inputTypes[0], changeTypes[0], 0.01, 0, 0, 50);
+    }
+
+    Rule(string i, string c, float p, int s, int e, int d)
     {
         input = i;
-        change_type = c;
+        change = c;
         proba = p;
         start_time = s;
         end_time = e;
@@ -122,17 +164,23 @@ class Rule
 
     string serialize()
     {
-        return input + "," + change_type + "," + proba + "," + start_time + "," + end_time + "," + diff;
+        return input + "," + change + "," + proba + "," + start_time + "," + end_time + "," + diff;
     }
 
-    void deserialize()
+    void deserialize(string str)
     {
-        // TODO string -> rule
+        array<string>@ splits = str.Split(",");
+        input = splits[0];
+        change = splits[1];
+        proba = Text::ParseFloat(splits[2]);
+        start_time = Text::ParseInt(splits[3]);
+        end_time = Text::ParseInt(splits[4]);
+        diff = Text::ParseInt(splits[5]);
     }
 
     string toString()
     {
-        return "rule: From " + start_time + " to " + end_time + ", change " + change_type + " for " + input + " with max diff of " + diff + " and modify_prob=" + proba;
+        return "rule: From " + start_time + " to " + end_time + ", change " + change + " for " + input + " with max diff of " + diff + " and modify_prob=" + proba;
     }
 }
 

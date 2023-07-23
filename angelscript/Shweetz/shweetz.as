@@ -1,5 +1,6 @@
 void Main()
 {
+    RegisterVariable("shweetz_target", "Nosepos+");
     RegisterVariable("shweetz_eval_time_min", 0);
     RegisterVariable("shweetz_eval_time_max", 10000);
     RegisterVariable("shweetz_next_eval_check", false);
@@ -24,10 +25,10 @@ void Main()
     RegisterVariable("shweetz_change_prob", 0);
 
     // Handlers
-    RegisterBruteforceEvaluation("1nosepos_plus", "Nosepos+", OnEvaluateNosePos, UINosePos);
-    RegisterBruteforceEvaluation("2other", "Other", OnEvaluateOther);
-    RegisterValidationHandler("rules", "Rules to change inputs", UIRules);
-    RegisterValidationHandler("other", "Other script that changes inputs");
+    RegisterBruteforceEvaluation("1nosepos_plus", "Nosepos+", OnEvaluateNosePos, UIBfNosePos);
+    //RegisterBruteforceEvaluation("2other", "Other", OnEvaluateOther);
+    RegisterValidationHandler("rules", "Shweetz's custom validation", UIValidation);
+    //RegisterValidationHandler("other", "Other script that changes inputs");
 }
 
 void OnSimulationBegin(SimulationManager@ simManager)

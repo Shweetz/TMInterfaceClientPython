@@ -1,7 +1,14 @@
 // array<double> POINT = {50, 50, 300};
 // array<double> TRIGGER = {523, 9, 458, 550, 20, 490};
 
-void UINosePos() 
+void UIBfNosePos()
+{
+    UINosePos();
+    UI::Separator();
+    UIConditions();
+}
+
+void UINosePos()
 {
     // Change a variable manually
     // double time;
@@ -20,30 +27,32 @@ void UINosePos()
 
         string next_eval = GetS("shweetz_next_eval");
         if (UI::BeginCombo("Next eval", next_eval)) {
-            if (UI::Selectable("None", next_eval == "None")) {
-                SetVariable("shweetz_next_eval", "None");
-            }
-            if (UI::Selectable("Point", next_eval == "Point")) {
-                SetVariable("shweetz_next_eval", "Point");
-                string s;
-                GetVariable("shweetz_point", s);
-                Point point(s);
-                if (UI::DragFloat3("Point", point.vpoint)) {
-                    SetVariable("shweetz_point", point.toStr());
+            for (uint i = 0; i < modes.Length; i++)
+            {
+                string currentMode = modes[i];
+                if (UI::Selectable(currentMode, next_eval == currentMode))
+                {
+                    SetVariable("shweetz_next_eval", currentMode);
                 }
+            }
                 
-            }
-            if (UI::Selectable("Speed", next_eval == "Speed")) {
-                SetVariable("shweetz_next_eval", "Speed");
-            }
-            if (UI::Selectable("Time", next_eval == "Time")) {
-                SetVariable("shweetz_next_eval", "Time");
-            }
             UI::EndCombo();
         }
-        //UI::InputTextVar("Text", "S_Text");
+
+        if (next_eval == "Point") {
+            /*Point point(GetS("shweetz_point"));
+            if (UI::DragFloat3("Point", point.pvec)) {
+                SetVariable("shweetz_point", point.toStr());
+            }*/
+            if (UI::DragFloat3Var("Point", "shweetz_point")) {
+                point.str(GetS("shweetz_point"));
+            }
+        }
     }
-    UI::Separator();
+}
+
+void UIConditions() 
+{
     UI::SliderFloatVar("Min speed (km/h)", "bf_condition_speed", 0.0f, 1000.0f);
     UI::InputIntVar("Min CP collected", "shweetz_min_cp", 1);
     UI::SliderIntVar("Min wheels on ground", "shweetz_min_wheels_on_ground", 0, 4);
@@ -112,10 +121,10 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
 
     // Conditions
     if (GetD("bf_condition_speed") > speedKmh) {
-        print("Speed too low: " + speedKmh + " < " + GetD("bf_condition_speed"));
+        //print("Speed too low: " + speedKmh + " < " + GetD("bf_condition_speed"));
         return false;
     }
-        print("Speed is ok  : " + speedKmh);
+        //print("Speed is ok  : " + speedKmh);
 
     if (GetD("shweetz_min_cp") > int(simManager.PlayerInfo.CurCheckpointCount)) {
         return false;
@@ -125,13 +134,14 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
         return false;
     }
 
-    // if (GetD("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
-    //     return false;
-    // }
+    print("" + IsInTrigger(pos, int(GetD("shweetz_trigger_index"))));
+    if (!IsInTrigger(pos, int(GetD("shweetz_trigger_index")))) {
+        return false;
+    }
 
-    // if (!IsInTrigger(pos, TRIGGER)) {
-    //     return false;
-    // }
+    if (GetD("shweetz_gear") != -1 && GetD("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
+        return false;
+    }
 
     // if (simManager.SceneVehicleCar.IsFreeWheeling) {
     //     return false;
@@ -149,6 +159,7 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
 
     curr.angle = diffYaw + diffPitch + diffRoll;
     curr.distance = DistanceToPoint(pos);
+    print("distance=" + curr.distance);
     curr.speed = speedKmh;
 
     //print("" + raceTime + ": distance=" + DistanceToPoint(pos));

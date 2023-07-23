@@ -6,34 +6,82 @@ TM::InputEventBuffer@ inputBuffer;
 int lowestPossChange;
 int highestPossChange;
 
-void UIRules()
+void UIValidation()
 {
-    if (UI::CollapsingHeader("General"))
+    if (UI::CollapsingHeader("Optimization"))
     {
-        /*timeFrom  = UI::InputTimeVar("Time to start at", TIME_FROM);
-        timeTo    = UI::InputTimeVar("Time to stop at", TIME_TO);
-        direction = UI::SliderIntVar("Direction", DIRECTION, Direction::left, Direction::right, "");
-        direction = direction == Direction::left ? -1 : 1;*/
-    }
-
-    if (UI::CollapsingHeader("Modes"))
-    {
-        /*if (UI::BeginCombo("Mode", mode))
-        {
-            for (uint i = 0; i < modes.Length; i++)
+        string target = GetS("shweetz_target");
+        if (UI::BeginCombo("Target", target)) {
+            for (uint i = 0; i < targets.Length; i++)
             {
-                string newMode = modes[i];
-                if (UI::Selectable(newMode, mode == newMode))
+                string currentTarget = targets[i];
+                if (UI::Selectable(currentTarget, target == currentTarget))
                 {
-                    SetVariable(MODE, newMode);
-                    mode = newMode;
-                    @funcs = GetScriptFuncs(newMode);
+                    SetVariable("shweetz_next_eval", currentTarget);
                 }
             }
-
+                
             UI::EndCombo();
         }
-        funcs.settings();*/
+        
+        UINosePos();
+    }
+
+    if (UI::CollapsingHeader("Conditions"))
+    {
+        UIConditions();
+    }
+
+    if (UI::CollapsingHeader("Input Modification"))
+    {
+        UIRules();
+    }
+}
+
+void UIRules()
+{
+    if (UI::Button("Add Rule")) {
+        rules.InsertLast(Rule());
+    }
+    
+    UI::Text("Input type");
+    UI::SameLine();
+    UI::Text("Change type");
+
+    for (uint i = 0; i < rules.Length; i++)
+    {
+        Rule@ currentRule = rules[i];
+        string inputType = currentRule.input;
+        if (UI::BeginCombo("##inputType", inputType)) {
+            for (uint j = 0; j < inputTypes.Length; j++)
+            {
+                string currentInputType = inputTypes[j];
+                if (UI::Selectable(currentInputType, inputType == currentInputType)) {
+                    currentRule.input = currentInputType;
+                }
+            }
+                
+            UI::EndCombo();
+        }
+        string changeType = currentRule.change;
+        if (UI::BeginCombo("##changeType", changeType)) {
+            for (uint j = 0; j < changeTypes.Length; j++)
+            {
+                string currentChangeType = changeTypes[j];
+                if (currentChangeType == "Steering" && currentRule.input != "Steer") {
+                    continue;
+                }
+                if (UI::Selectable(currentChangeType, changeType == currentChangeType)) {
+                    currentRule.change = currentChangeType;
+                }
+            }
+                
+            UI::EndCombo();
+        }
+        if (currentRule.input != "Steer" && currentRule.change == "Steering") {
+            currentRule.change = "Timing";
+        }
+        UI::Text(currentRule.toString());
     }
 }
 
