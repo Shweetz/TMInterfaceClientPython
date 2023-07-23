@@ -17,6 +17,8 @@ void Main()
     // RegisterVariable("shweetz_trigger", 0);
 
     // Input change
+    RegisterVariable("shweetz_input_modifier", "Built-in");
+    RegisterVariable("shweetz_rules", "");
     RegisterVariable("shweetz_load_inputs_from_file", "");
     RegisterVariable("shweetz_load_replay_from_file", "");
     RegisterVariable("shweetz_lock_base_run", false);
@@ -26,23 +28,20 @@ void Main()
 
     // Handlers
     RegisterBruteforceEvaluation("1nosepos_plus", "Nosepos+", OnEvaluateNosePos, UIBfNosePos);
-    //RegisterBruteforceEvaluation("2other", "Other", OnEvaluateOther);
+
     RegisterValidationHandler("rules", "Shweetz's custom validation", UIValidation);
-    //RegisterValidationHandler("other", "Other script that changes inputs");
 }
 
 void OnSimulationBegin(SimulationManager@ simManager)
 {
-    int baseRunDuration = simManager.EventsDuration;
-    print("Base run time: " + baseRunDuration);
-    if (GetD("shweetz_eval_time_min") > GetD("shweetz_eval_time_max") || GetD("shweetz_eval_time_max") > baseRunDuration) {
-        print("ERROR: MUST HAVE 'EVAL_TIME_MIN <= EVAL_TIME_MAX <= REPLAY_TIME'");
-    }
     string controller = GetS("controller");
     if (controller == "rules") {
+        int baseRunDuration = simManager.EventsDuration;
+        print("Base run time: " + baseRunDuration);
+        if (GetD("shweetz_eval_time_min") > GetD("shweetz_eval_time_max") || GetD("shweetz_eval_time_max") > baseRunDuration) {
+            print("ERROR: MUST HAVE 'EVAL_TIME_MIN <= EVAL_TIME_MAX <= REPLAY_TIME'");
+        }
         OnSimulationBeginRules(simManager);
-    } else if (controller == "other") {
-        //OnSimulationBeginOther(simManager);
     }
 }
 
@@ -51,8 +50,6 @@ void OnSimulationStep(SimulationManager@ simManager, bool userCancelled)
     string controller = GetS("controller");
     if (controller == "rules") {
         OnSimulationStepRules(simManager, userCancelled);
-    } else if (controller == "other") {
-        OnSimulationStepOther(simManager, userCancelled);
     }
 }
 

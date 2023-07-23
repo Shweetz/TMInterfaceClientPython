@@ -10,20 +10,25 @@ void UIBfNosePos()
 
 void UINosePos()
 {
-    // Change a variable manually
+    ///// Change a variable manually
     // double time;
     // GetVariable("plugin_time", time);
     // time = UI::InputTime("Some time", time);
     // SetVariable("plugin_time", time);
+    //
+    ///// Change a variable manually v2
+    // string str = GetS("plugin_str");
+    // combo shit => SetVariable("plugin_str", str);
 
     UI::InputTimeVar("Eval time min", "shweetz_eval_time_min");
     UI::InputTimeVar("Eval time max", "shweetz_eval_time_max");
+        
+    UI::Dummy( vec2(0, 25) );
 
-    if (UI::CheckboxVar("Change eval after nosepos is good enough", "shweetz_next_eval_check")) {
-        //UI::SameLine();
-        UI::TextDimmed("Good enough means angle can be slightly off from 90°.");
-        UI::TextDimmed("Example, max angle diff of 10 means 80° to 100°");
-        UI::InputIntVar("Max angle difference", "shweetz_angle_min_deg", 1);
+    if (UI::CheckboxVar("Change eval after nosepos is good enough", "shweetz_next_eval_check"))
+    {
+        UI::TextDimmed("Good enough means angle can be some degrees off from ideal nosepos.");
+        UI::InputIntVar("Max angle from ideal (°)", "shweetz_angle_min_deg", 1);
 
         string next_eval = GetS("shweetz_next_eval");
         if (UI::BeginCombo("Next eval", next_eval)) {
@@ -49,15 +54,18 @@ void UINosePos()
             }
         }
     }
+
+    UI::Dummy( vec2(0, 25) );
 }
 
-void UIConditions() 
+void UIConditions()
 {
     UI::SliderFloatVar("Min speed (km/h)", "bf_condition_speed", 0.0f, 1000.0f);
     UI::InputIntVar("Min CP collected", "shweetz_min_cp", 1);
     UI::SliderIntVar("Min wheels on ground", "shweetz_min_wheels_on_ground", 0, 4);
     UI::SliderIntVar("Gear", "shweetz_gear", -1, 6);
     //UI::SliderIntVar("Trigger", "shweetz_trigger", -1, 6);
+    UI::Dummy( vec2(0, 25) );
 }
 
 class CarState
@@ -120,32 +128,9 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
     simManager.Dyna.CurrentState.Location.Rotation.GetYawPitchRoll(carYaw, carPitch, carRoll);
 
     // Conditions
-    if (GetD("bf_condition_speed") > speedKmh) {
-        //print("Speed too low: " + speedKmh + " < " + GetD("bf_condition_speed"));
+    if (!AreConditionsMet(simManager)) {
         return false;
     }
-        //print("Speed is ok  : " + speedKmh);
-
-    if (GetD("shweetz_min_cp") > int(simManager.PlayerInfo.CurCheckpointCount)) {
-        return false;
-    }
-
-    if (GetD("shweetz_min_wheels_on_ground") > CountWheelsOnGround(simManager)) {
-        return false;
-    }
-
-    print("" + IsInTrigger(pos, int(GetD("shweetz_trigger_index"))));
-    if (!IsInTrigger(pos, int(GetD("shweetz_trigger_index")))) {
-        return false;
-    }
-
-    if (GetD("shweetz_gear") != -1 && GetD("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
-        return false;
-    }
-
-    // if (simManager.SceneVehicleCar.IsFreeWheeling) {
-    //     return false;
-    // }
     
     // Do calculations
     double targetYaw = Math::ToDeg(Math::Atan2(speedVec.x, speedVec.z));
@@ -183,4 +168,39 @@ bool IsBetter(SimulationManager@ simManager, CarState& curr) {
     }
     //print("" + curr.angle + " vs " + best.angle);
     return curr.angle < best.angle;
+}
+
+bool AreConditionsMet(SimulationManager@ simManager)
+{
+    float speedKmh = Norm(simManager.Dyna.CurrentState.LinearSpeed) * 3.6;
+    vec3 pos = simManager.Dyna.CurrentState.Location.Position;
+
+    if (GetD("bf_condition_speed") > speedKmh) {
+        //print("Speed too low: " + speedKmh + " < " + GetD("bf_condition_speed"));
+        return false;
+    }
+        //print("Speed is ok  : " + speedKmh);
+
+    if (GetD("shweetz_min_cp") > int(simManager.PlayerInfo.CurCheckpointCount)) {
+        return false;
+    }
+
+    if (GetD("shweetz_min_wheels_on_ground") > CountWheelsOnGround(simManager)) {
+        return false;
+    }
+
+    print("" + IsInTrigger(pos, int(GetD("shweetz_trigger_index"))));
+    if (!IsInTrigger(pos, int(GetD("shweetz_trigger_index")))) {
+        return false;
+    }
+
+    if (GetD("shweetz_gear") != -1 && GetD("shweetz_gear") != simManager.SceneVehicleCar.CarEngine.Gear) {
+        return false;
+    }
+
+    // if (simManager.SceneVehicleCar.IsFreeWheeling) {
+    //     return false;
+    // }
+
+    return true;
 }

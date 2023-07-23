@@ -1,5 +1,8 @@
 array<string> targets = { "Nosepos+" };
 array<string> modes = { "Point", "Speed", "Time" };
+array<string> inputModifiers = { "Built-in", "Rules" };
+array<Rule@> rules;
+//Rules@ rules;
 array<string> inputTypes = { "Steer", "Accelerate", "Brake" };
 array<string> changeTypes = { "Steering", "Timing", "Create" };
 Point point;
@@ -39,7 +42,7 @@ int CountWheelsOnGround(SimulationManager@ simManager) {
     return count;
 }
 
-bool IsInTrigger(vec3 pos, array<double> TRIGGER) {
+bool IsInTrigger(vec3& pos, array<double>& TRIGGER) {
     double x1 = Math::Min(TRIGGER[0], TRIGGER[3]), x2 = Math::Max(TRIGGER[0], TRIGGER[3]);
     double y1 = Math::Min(TRIGGER[1], TRIGGER[4]), y2 = Math::Max(TRIGGER[1], TRIGGER[4]);
     double z1 = Math::Min(TRIGGER[2], TRIGGER[5]), z2 = Math::Max(TRIGGER[2], TRIGGER[5]);
@@ -49,25 +52,25 @@ bool IsInTrigger(vec3 pos, array<double> TRIGGER) {
     return false;
 }
 
-bool IsInTrigger(vec3 pos, int triggerIndex) {
+bool IsInTrigger(vec3& pos, int triggerIndex) {
     Trigger3D trigger;
     GetTrigger(trigger, triggerIndex);
     return trigger.ContainsPoint(pos);
 }
 
-float Norm(vec3 vec) {
+float Norm(vec3& vec) {
     return Math::Sqrt((vec.x * vec.x) + (vec.y * vec.y) + (vec.z * vec.z));
 }
 
-bool GetB(string str) {
+bool GetB(string& str) {
     return GetVariableBool(str);
 }
 
-double GetD(string str) {
+double GetD(string& str) {
     return GetVariableDouble(str);
 }
 
-string GetS(string str) {
+string GetS(string& str) {
     return GetVariableString(str);
 }
 
@@ -169,6 +172,7 @@ class Rule
 
     void deserialize(string str)
     {
+        print(str);
         array<string>@ splits = str.Split(",");
         input = splits[0];
         change = splits[1];
@@ -180,11 +184,36 @@ class Rule
 
     string toString()
     {
-        return "rule: From " + start_time + " to " + end_time + ", change " + change + " for " + input + " with max diff of " + diff + " and modify_prob=" + proba;
+        return "rule: From " + start_time + " to " + end_time + ", change " + input + " " + change + " with max diff of " + diff + " and modify_prob=" + proba;
     }
 }
 
-class Rules
+string Serialize(array<Rule@> rules)
+{
+    string str = "";
+    for (uint i = 0; i < rules.Length; i++) {
+        str += rules[i].serialize() + " ";
+    }
+    return str;
+}
+
+void Deserialize(string rules_str)
+{
+    rules.Resize(0);
+    // Separate big string in rules
+    array<string>@ splits = rules_str.Split(" ");
+    print("<" + rules_str + ">");
+    print("a " + splits.Length);
+    for (uint i = 0; i < splits.Length; i++) {
+        if (splits[i] == "") {
+            continue;
+        }
+        rules.InsertLast(Rule());
+        rules[i].deserialize(splits[i]);
+    }
+}
+
+/*class Rules
 {
     array<Rule@> rules;
     string serialize()
@@ -196,12 +225,16 @@ class Rules
         return str;
     }
 
-    string deserialize()
+    void deserialize(string rule_str)
     {
         // TODO
-        return "";
     }
-}
+
+    uint Length()
+    {
+        return rules.Length;
+    }
+}*/
 
 void FillInputs(TM::InputEventBuffer@ inputBuffer) 
 {
