@@ -10,11 +10,10 @@ void Main()
     RegisterVariable("shweetz_angle_max_deg", 90);
 
     // Conditions
-    // use builtin bf_condition_speed
     RegisterVariable("shweetz_min_cp", 0);
     RegisterVariable("shweetz_min_wheels_on_ground", 0);
     RegisterVariable("shweetz_gear", -1);
-    // RegisterVariable("shweetz_trigger", 0);
+    RegisterVariable("shweetz_trigger", 0);
 
     // Input change
     RegisterVariable("shweetz_input_modifier", "Built-in");
@@ -56,9 +55,9 @@ void OnSimulationStep(SimulationManager@ simManager, bool userCancelled)
 PluginInfo@ GetPluginInfo()
 {
     auto info = PluginInfo();
-    info.name = "Shweetz's plugin";
-    info.author = "Shweetz";
-    info.version = "v1.0.0";
-    info.description = "Description";
+    info.Name = "Shweetz's plugin";
+    info.Author = "Shweetz";
+    info.Version = "v1.0.0";
+    info.Description = "Description";
     return info;
 }

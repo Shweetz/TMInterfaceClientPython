@@ -52,7 +52,6 @@ void UIValidation()
 
 string BuildCombo(string& label, string& value, array<string> values)
 {
-    //print("BuildCombo");
     string ret = value;
     if (UI::BeginCombo(label, value)) {
         for (uint i = 0; i < values.Length; i++)
@@ -61,13 +60,11 @@ string BuildCombo(string& label, string& value, array<string> values)
             if (UI::Selectable(currentValue, value == currentValue))
             {
                 ret = currentValue;
-                print("aaaaaaret=" + ret);
             }
         }
             
         UI::EndCombo();
     }
-    //print("ret=" + ret);
     return ret;
 }
 
@@ -117,7 +114,7 @@ void UIRules()
     Deserialize(GetS("shweetz_rules"));
 
     if (UI::Button("Add Rule")) {
-        rules.InsertLast(Rule());
+        rules.Add(Rule());
     }
     UI::SameLine();
     if (UI::Button("Clear Rules")) {
